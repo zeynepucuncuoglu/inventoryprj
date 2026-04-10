@@ -1,0 +1,17 @@
+/Users/zeynepucuncuoglu/Documents/javainventoryprj/demand-forecast-platform/services/product-service/src/main/java/com/forecast/product/infrastructure/persistence/ProductEntity.java
+/Users/zeynepucuncuoglu/Documents/javainventoryprj/demand-forecast-platform/services/product-service/src/main/java/com/forecast/product/domain/InsufficientStockException.java
+/Users/zeynepucuncuoglu/Documents/javainventoryprj/demand-forecast-platform/services/product-service/src/main/java/com/forecast/product/domain/ProductRepository.java
+/Users/zeynepucuncuoglu/Documents/javainventoryprj/demand-forecast-platform/services/product-service/src/main/java/com/forecast/product/api/GlobalExceptionHandler.java
+/Users/zeynepucuncuoglu/Documents/javainventoryprj/demand-forecast-platform/services/product-service/src/main/java/com/forecast/product/application/ProductService.java
+/Users/zeynepucuncuoglu/Documents/javainventoryprj/demand-forecast-platform/services/product-service/src/main/java/com/forecast/product/domain/Product.java
+/Users/zeynepucuncuoglu/Documents/javainventoryprj/demand-forecast-platform/services/product-service/src/main/java/com/forecast/product/infrastructure/messaging/ProductEventPublisher.java
+/Users/zeynepucuncuoglu/Documents/javainventoryprj/demand-forecast-platform/services/product-service/src/main/java/com/forecast/product/infrastructure/persistence/ProductJpaRepository.java
+/Users/zeynepucuncuoglu/Documents/javainventoryprj/demand-forecast-platform/services/product-service/src/main/java/com/forecast/product/application/ProductNotFoundException.java
+/Users/zeynepucuncuoglu/Documents/javainventoryprj/demand-forecast-platform/services/product-service/src/main/java/com/forecast/product/infrastructure/messaging/ProductEvent.java
+/Users/zeynepucuncuoglu/Documents/javainventoryprj/demand-forecast-platform/services/product-service/src/main/java/com/forecast/product/infrastructure/persistence/ProductRepositoryAdapter.java
+/Users/zeynepucuncuoglu/Documents/javainventoryprj/demand-forecast-platform/services/product-service/src/main/java/com/forecast/product/ProductServiceApplication.java
+/Users/zeynepucuncuoglu/Documents/javainventoryprj/demand-forecast-platform/services/product-service/src/main/java/com/forecast/product/api/ProductController.java
+/Users/zeynepucuncuoglu/Documents/javainventoryprj/demand-forecast-platform/services/product-service/src/main/java/com/forecast/product/application/dto/CreateProductRequest.java
+/Users/zeynepucuncuoglu/Documents/javainventoryprj/demand-forecast-platform/services/product-service/src/main/java/com/forecast/product/application/dto/ProductResponse.java
+/Users/zeynepucuncuoglu/Documents/javainventoryprj/demand-forecast-platform/services/product-service/src/main/java/com/forecast/product/application/dto/AdjustStockRequest.java
+/Users/zeynepucuncuoglu/Documents/javainventoryprj/demand-forecast-platform/services/product-service/src/main/java/com/forecast/product/application/DuplicateSkuException.java

@@ -1,0 +1,234 @@
+version: "3.9"
+
+networks:
+  forecast-net:
+    driver: bridge
+
+volumes:
+  product-db-data:
+  order-db-data:
+  forecast-db-data:
+  kafka-data:
+  zookeeper-data:
+
+services:
+
+  # ─────────────────────────────────────────────
+  # Infrastructure
+  # ─────────────────────────────────────────────
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+    networks:
+      - forecast-net
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 10s
+      retries: 5
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    ports:
+      - "29092:29092"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    networks:
+      - forecast-net
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 15s
+      retries: 10
+
+  kafka-init:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    volumes:
+      - ./infrastructure/kafka/create-topics.sh:/create-topics.sh
+    entrypoint: ["/bin/bash", "/create-topics.sh"]
+    networks:
+      - forecast-net
+
+  # ─────────────────────────────────────────────
+  # Databases (one per service)
+  # ─────────────────────────────────────────────
+
+  product-db:
+    image: postgres:16-alpine
+    container_name: product-db
+    environment:
+      POSTGRES_DB: productdb
+      POSTGRES_USER: ${PRODUCT_DB_USER:-product_user}
+      POSTGRES_PASSWORD: ${PRODUCT_DB_PASSWORD:-product_pass}
+    ports:
+      - "5432:5432"
+    volumes:
+      - product-db-data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/init-product-db.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - forecast-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PRODUCT_DB_USER:-product_user} -d productdb"]
+      interval: 10s
+      retries: 5
+
+  order-db:
+    image: postgres:16-alpine
+    container_name: order-db
+    environment:
+      POSTGRES_DB: orderdb
+      POSTGRES_USER: ${ORDER_DB_USER:-order_user}
+      POSTGRES_PASSWORD: ${ORDER_DB_PASSWORD:-order_pass}
+    ports:
+      - "5433:5432"
+    volumes:
+      - order-db-data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/init-order-db.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - forecast-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${ORDER_DB_USER:-order_user} -d orderdb"]
+      interval: 10s
+      retries: 5
+
+  forecast-db:
+    image: postgres:16-alpine
+    container_name: forecast-db
+    environment:
+      POSTGRES_DB: forecastdb
+      POSTGRES_USER: ${FORECAST_DB_USER:-forecast_user}
+      POSTGRES_PASSWORD: ${FORECAST_DB_PASSWORD:-forecast_pass}
+    ports:
+      - "5434:5432"
+    volumes:
+      - forecast-db-data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/init-forecast-db.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - forecast-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${FORECAST_DB_USER:-forecast_user} -d forecastdb"]
+      interval: 10s
+      retries: 5
+
+  # ─────────────────────────────────────────────
+  # Application Services
+  # ─────────────────────────────────────────────
+
+  api-gateway:
+    build: ./services/api-gateway
+    container_name: api-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      PRODUCT_SERVICE_URL: http://product-service:8081
+      ORDER_SERVICE_URL: http://order-service:8082
+      FORECAST_SERVICE_URL: http://forecast-service:8083
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+    depends_on:
+      - product-service
+      - order-service
+      - forecast-service
+    networks:
+      - forecast-net
+
+  product-service:
+    build: ./services/product-service
+    container_name: product-service
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://product-db:5432/productdb
+      SPRING_DATASOURCE_USERNAME: ${PRODUCT_DB_USER:-product_user}
+      SPRING_DATASOURCE_PASSWORD: ${PRODUCT_DB_PASSWORD:-product_pass}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      product-db:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - forecast-net
+
+  order-service:
+    build: ./services/order-service
+    container_name: order-service
+    ports:
+      - "8082:8082"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://order-db:5432/orderdb
+      SPRING_DATASOURCE_USERNAME: ${ORDER_DB_USER:-order_user}
+      SPRING_DATASOURCE_PASSWORD: ${ORDER_DB_PASSWORD:-order_pass}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      order-db:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - forecast-net
+
+  forecast-service:
+    build: ./services/forecast-service
+    container_name: forecast-service
+    ports:
+      - "8083:8083"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://forecast-db:5432/forecastdb
+      SPRING_DATASOURCE_USERNAME: ${FORECAST_DB_USER:-forecast_user}
+      SPRING_DATASOURCE_PASSWORD: ${FORECAST_DB_PASSWORD:-forecast_pass}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      ML_SERVICE_URL: http://ml-inference-service:8000
+    depends_on:
+      forecast-db:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      ml-inference-service:
+        condition: service_healthy
+    networks:
+      - forecast-net
+
+  notification-service:
+    build: ./services/notification-service
+    container_name: notification-service
+    ports:
+      - "8084:8084"
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - forecast-net
+
+  ml-inference-service:
+    build: ./services/ml-inference-service
+    container_name: ml-inference-service
+    ports:
+      - "8000:8000"
+    networks:
+      - forecast-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      retries: 5

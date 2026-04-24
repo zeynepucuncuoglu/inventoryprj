@@ -1,0 +1,38 @@
+server:
+  port: 8084
+
+spring:
+  application:
+    name: notification-service
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+    consumer:
+      group-id: notification-service-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "com.forecast.*"
+
+notification:
+  # Thresholds for triggering alerts
+  low-stock-threshold: 10          # alert if stock drops to or below this
+  low-demand-forecast-threshold: 5 # alert if 30-day predicted demand is below this
+  high-demand-surge-multiplier: 2.0 # alert if demand forecast is 2x current stock
+
+  # Webhook — set to your Slack/Teams/PagerDuty URL in production
+  webhook:
+    enabled: ${WEBHOOK_ENABLED:false}
+    url: ${WEBHOOK_URL:https://hooks.slack.com/services/YOUR/WEBHOOK/URL}
+    timeout-seconds: 5
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
+logging:
+  level:
+    com.forecast.notification: DEBUG

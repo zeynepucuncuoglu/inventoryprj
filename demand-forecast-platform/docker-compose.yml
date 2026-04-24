@@ -10,6 +10,7 @@ volumes:
   forecast-db-data:
   kafka-data:
   zookeeper-data:
+  redis-data:
 
 services:
 
@@ -68,6 +69,25 @@ services:
     entrypoint: ["/bin/bash", "/create-topics.sh"]
     networks:
       - forecast-net
+
+  # ─────────────────────────────────────────────
+  # Redis — used by API Gateway rate limiter
+  # ─────────────────────────────────────────────
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: redis
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - forecast-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      retries: 5
 
   # ─────────────────────────────────────────────
   # Databases (one per service)
@@ -143,11 +163,18 @@ services:
       PRODUCT_SERVICE_URL: http://product-service:8081
       ORDER_SERVICE_URL: http://order-service:8082
       FORECAST_SERVICE_URL: http://forecast-service:8083
-      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production-must-be-32-chars}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
     depends_on:
-      - product-service
-      - order-service
-      - forecast-service
+      redis:
+        condition: service_healthy
+      product-service:
+        condition: service_started
+      order-service:
+        condition: service_started
+      forecast-service:
+        condition: service_started
     networks:
       - forecast-net
 

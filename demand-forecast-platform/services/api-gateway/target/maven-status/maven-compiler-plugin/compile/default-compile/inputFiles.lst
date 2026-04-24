@@ -1,0 +1,6 @@
+/Users/zeynepucuncuoglu/Documents/javainventoryprj/demand-forecast-platform/services/api-gateway/src/main/java/com/forecast/gateway/filter/AuthenticationFilter.java
+/Users/zeynepucuncuoglu/Documents/javainventoryprj/demand-forecast-platform/services/api-gateway/src/main/java/com/forecast/gateway/filter/RequestLoggingFilter.java
+/Users/zeynepucuncuoglu/Documents/javainventoryprj/demand-forecast-platform/services/api-gateway/src/main/java/com/forecast/gateway/ApiGatewayApplication.java
+/Users/zeynepucuncuoglu/Documents/javainventoryprj/demand-forecast-platform/services/api-gateway/src/main/java/com/forecast/gateway/filter/FallbackController.java
+/Users/zeynepucuncuoglu/Documents/javainventoryprj/demand-forecast-platform/services/api-gateway/src/main/java/com/forecast/gateway/config/GatewayConfig.java
+/Users/zeynepucuncuoglu/Documents/javainventoryprj/demand-forecast-platform/services/api-gateway/src/main/java/com/forecast/gateway/security/JwtTokenValidator.java

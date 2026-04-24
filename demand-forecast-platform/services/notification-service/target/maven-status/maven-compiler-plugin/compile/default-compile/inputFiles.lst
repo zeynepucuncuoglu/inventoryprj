@@ -1,0 +1,13 @@
+/Users/zeynepucuncuoglu/Documents/javainventoryprj/demand-forecast-platform/services/notification-service/src/main/java/com/forecast/notification/application/AlertEvaluator.java
+/Users/zeynepucuncuoglu/Documents/javainventoryprj/demand-forecast-platform/services/notification-service/src/main/java/com/forecast/notification/infrastructure/messaging/ProductEventMessage.java
+/Users/zeynepucuncuoglu/Documents/javainventoryprj/demand-forecast-platform/services/notification-service/src/main/java/com/forecast/notification/application/NotificationService.java
+/Users/zeynepucuncuoglu/Documents/javainventoryprj/demand-forecast-platform/services/notification-service/src/main/java/com/forecast/notification/domain/AlertSeverity.java
+/Users/zeynepucuncuoglu/Documents/javainventoryprj/demand-forecast-platform/services/notification-service/src/main/java/com/forecast/notification/infrastructure/notifier/LogNotificationChannel.java
+/Users/zeynepucuncuoglu/Documents/javainventoryprj/demand-forecast-platform/services/notification-service/src/main/java/com/forecast/notification/domain/AlertType.java
+/Users/zeynepucuncuoglu/Documents/javainventoryprj/demand-forecast-platform/services/notification-service/src/main/java/com/forecast/notification/NotificationServiceApplication.java
+/Users/zeynepucuncuoglu/Documents/javainventoryprj/demand-forecast-platform/services/notification-service/src/main/java/com/forecast/notification/domain/Alert.java
+/Users/zeynepucuncuoglu/Documents/javainventoryprj/demand-forecast-platform/services/notification-service/src/main/java/com/forecast/notification/infrastructure/messaging/ForecastEventConsumer.java
+/Users/zeynepucuncuoglu/Documents/javainventoryprj/demand-forecast-platform/services/notification-service/src/main/java/com/forecast/notification/infrastructure/notifier/NotificationChannel.java
+/Users/zeynepucuncuoglu/Documents/javainventoryprj/demand-forecast-platform/services/notification-service/src/main/java/com/forecast/notification/infrastructure/notifier/WebhookNotificationChannel.java
+/Users/zeynepucuncuoglu/Documents/javainventoryprj/demand-forecast-platform/services/notification-service/src/main/java/com/forecast/notification/infrastructure/messaging/ProductEventConsumer.java
+/Users/zeynepucuncuoglu/Documents/javainventoryprj/demand-forecast-platform/services/notification-service/src/main/java/com/forecast/notification/infrastructure/messaging/ForecastEventMessage.java

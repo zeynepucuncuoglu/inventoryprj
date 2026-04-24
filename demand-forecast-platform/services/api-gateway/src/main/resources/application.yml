@@ -1,0 +1,126 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+
+  # Redis — used by the rate limiter
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+  cloud:
+    gateway:
+      # Global default filters applied to every route
+      default-filters:
+        - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
+        - name: RequestRateLimiter
+          args:
+            redis-rate-limiter.replenishRate: 20    # tokens per second
+            redis-rate-limiter.burstCapacity: 40    # max burst
+            redis-rate-limiter.requestedTokens: 1
+            key-resolver: "#{@ipKeyResolver}"
+
+      routes:
+        # ── Product Service ──────────────────────────────────────
+        - id: product-service
+          uri: ${PRODUCT_SERVICE_URL:http://product-service:8081}
+          predicates:
+            - Path=/api/v1/products/**
+          filters:
+            - name: AuthenticationFilter   # our custom JWT filter
+            - name: CircuitBreaker
+              args:
+                name: product-service
+                fallbackUri: forward:/fallback/service-unavailable
+            - AddRequestHeader=X-Gateway-Source, api-gateway
+
+        # ── Order Service ─────────────────────────────────────────
+        - id: order-service
+          uri: ${ORDER_SERVICE_URL:http://order-service:8082}
+          predicates:
+            - Path=/api/v1/orders/**
+          filters:
+            - name: AuthenticationFilter
+            - name: CircuitBreaker
+              args:
+                name: order-service
+                fallbackUri: forward:/fallback/service-unavailable
+            - AddRequestHeader=X-Gateway-Source, api-gateway
+
+        # ── Forecast Service ──────────────────────────────────────
+        - id: forecast-service
+          uri: ${FORECAST_SERVICE_URL:http://forecast-service:8083}
+          predicates:
+            - Path=/api/v1/forecasts/**
+          filters:
+            - name: AuthenticationFilter
+            - name: CircuitBreaker
+              args:
+                name: forecast-service
+                fallbackUri: forward:/fallback/service-unavailable
+            - AddRequestHeader=X-Gateway-Source, api-gateway
+
+        # ── Auth endpoints — NO JWT filter ────────────────────────
+        - id: auth-login
+          uri: ${AUTH_SERVICE_URL:http://product-service:8081}  # placeholder
+          predicates:
+            - Path=/api/v1/auth/**
+          filters:
+            - AddRequestHeader=X-Gateway-Source, api-gateway
+
+      # Global CORS
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowedOriginPatterns:
+              - "http://localhost:*"
+              - "https://*.yourdomain.com"
+            allowedMethods:
+              - GET
+              - POST
+              - PUT
+              - PATCH
+              - DELETE
+              - OPTIONS
+            allowedHeaders: "*"
+            allowCredentials: true
+            maxAge: 3600
+
+# JWT config
+jwt:
+  secret: ${JWT_SECRET:change-me-must-be-at-least-256-bits-long-secret}
+  expiration-ms: 86400000   # 24 hours
+
+# Resilience4j circuit breakers for downstream services
+resilience4j:
+  circuitbreaker:
+    instances:
+      product-service:
+        sliding-window-size: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 15s
+      order-service:
+        sliding-window-size: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 15s
+      forecast-service:
+        sliding-window-size: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 15s
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,gateway
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    com.forecast.gateway: DEBUG
+    org.springframework.cloud.gateway: INFO

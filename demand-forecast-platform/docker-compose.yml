@@ -1,5 +1,3 @@
-version: "3.9"
-
 networks:
   forecast-net:
     driver: bridge
@@ -67,6 +65,24 @@ services:
     volumes:
       - ./infrastructure/kafka/create-topics.sh:/create-topics.sh
     entrypoint: ["/bin/bash", "/create-topics.sh"]
+    networks:
+      - forecast-net
+
+  # ─────────────────────────────────────────────
+  # Kafka UI — visual dashboard at http://localhost:8090
+  # ─────────────────────────────────────────────
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8090:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
     networks:
       - forecast-net
 

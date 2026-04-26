@@ -1,0 +1,87 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: forecast-service
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5434/forecastdb}
+    username: ${SPRING_DATASOURCE_USERNAME:forecast_user}
+    password: ${SPRING_DATASOURCE_PASSWORD:forecast_pass}
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all
+      retries: 3
+      properties:
+        enable.idempotence: true
+    consumer:
+      group-id: forecast-service-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
+        spring.json.use.type.headers: false
+
+# ML service URL — internal Docker network, not exposed publicly
+ml:
+  service:
+    url: ${ML_SERVICE_URL:http://localhost:8000}
+    timeout-seconds: 60   # ML inference can be slow for long history
+
+# Resilience4j — circuit breaker config for ML service calls
+resilience4j:
+  circuitbreaker:
+    instances:
+      ml-inference:
+        sliding-window-size: 10
+        failure-rate-threshold: 50        # open circuit after 50% failures
+        wait-duration-in-open-state: 30s  # wait 30s before trying again
+        permitted-calls-in-half-open-state: 3
+        register-health-indicator: true
+  retry:
+    instances:
+      ml-inference:
+        max-attempts: 3
+        wait-duration: 2s
+        retry-exceptions:
+          - org.springframework.web.reactive.function.client.WebClientRequestException
+  timelimiter:
+    instances:
+      ml-inference:
+        timeout-duration: 65s
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,circuitbreakers
+  health:
+    circuitbreakers:
+      enabled: true
+
+logging:
+  level:
+    com.forecast.forecastsvc: DEBUG
+    io.github.resilience4j: INFO

@@ -48,6 +48,12 @@
             <scope>runtime</scope>
         </dependency>
 
+        <!-- CircuitBreaker filter for Spring Cloud Gateway -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-circuitbreaker-reactor-resilience4j</artifactId>
+        </dependency>
+
         <!-- Rate limiting requires Redis -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

@@ -41,7 +41,8 @@ spring:
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
       properties:
-        spring.json.trusted.packages: "com.forecast.*"
+        spring.json.trusted.packages: "*"
+        spring.json.use.type.headers: false
 
 # ML service URL — internal Docker network, not exposed publicly
 ml:

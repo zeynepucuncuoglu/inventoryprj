@@ -16,6 +16,15 @@ public class OrderRepositoryAdapter implements OrderRepository {
 
     @Override
     public Order save(Order order) {
+        if (order.getId() != null) {
+            return jpa.findById(order.getId())
+                    .map(existing -> {
+                        existing.setStatus(order.getStatus());
+                        existing.setItems(toItemEntities(order.getItems()));
+                        return toDomain(jpa.save(existing));
+                    })
+                    .orElseGet(() -> toDomain(jpa.save(toEntity(order))));
+        }
         return toDomain(jpa.save(toEntity(order)));
     }
 
@@ -34,15 +43,21 @@ public class OrderRepositoryAdapter implements OrderRepository {
         return jpa.findByStatus(status).stream().map(this::toDomain).toList();
     }
 
+    private List<OrderItemEntity> toItemEntities(List<OrderItem> items) {
+        List<OrderItemEntity> result = new java.util.ArrayList<>();
+        for (OrderItem item : items) {
+            result.add(new OrderItemEntity(
+                    item.getProductId(),
+                    item.getSku(),
+                    item.getQuantity(),
+                    item.getUnitPrice()
+            ));
+        }
+        return result;
+    }
+
     private OrderEntity toEntity(Order order) {
-        List<OrderItemEntity> itemEntities = order.getItems().stream()
-                .map(item -> OrderItemEntity.builder()
-                        .productId(item.getProductId())
-                        .sku(item.getSku())
-                        .quantity(item.getQuantity())
-                        .unitPrice(item.getUnitPrice())
-                        .build())
-                .toList();
+        List<OrderItemEntity> itemEntities = toItemEntities(order.getItems());
 
         return OrderEntity.builder()
                 .id(order.getId())

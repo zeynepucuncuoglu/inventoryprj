@@ -117,7 +117,7 @@ services:
       POSTGRES_USER: ${PRODUCT_DB_USER:-product_user}
       POSTGRES_PASSWORD: ${PRODUCT_DB_PASSWORD:-product_pass}
     ports:
-      - "5432:5432"
+      - "5435:5432"
     volumes:
       - product-db-data:/var/lib/postgresql/data
     networks:

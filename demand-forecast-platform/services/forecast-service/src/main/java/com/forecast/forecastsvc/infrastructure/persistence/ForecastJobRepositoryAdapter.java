@@ -16,7 +16,34 @@ public class ForecastJobRepositoryAdapter implements ForecastJobRepository {
 
     @Override
     public ForecastJob save(ForecastJob job) {
+        if (job.getId() != null) {
+            return jpa.findById(job.getId())
+                    .map(existing -> {
+                        updateEntity(existing, job);
+                        return toDomain(jpa.save(existing));
+                    })
+                    .orElseGet(() -> toDomain(jpa.save(toEntity(job))));
+        }
         return toDomain(jpa.save(toEntity(job)));
+    }
+
+    private void updateEntity(ForecastJobEntity existing, ForecastJob job) {
+        existing.setStatus(job.getStatus());
+        existing.setErrorMessage(job.getErrorMessage());
+        if (job.getResult() != null) {
+            existing.setModelUsed(job.getResult().modelUsed());
+            existing.setMae(job.getResult().mae());
+            existing.setForecastPoints(
+                    job.getResult().points().stream()
+                            .map(p -> ForecastPointEmbeddable.builder()
+                                    .date(p.date())
+                                    .predictedQuantity(p.predictedQuantity())
+                                    .lowerBound(p.lowerBound())
+                                    .upperBound(p.upperBound())
+                                    .build())
+                            .collect(java.util.stream.Collectors.toList())
+            );
+        }
     }
 
     @Override

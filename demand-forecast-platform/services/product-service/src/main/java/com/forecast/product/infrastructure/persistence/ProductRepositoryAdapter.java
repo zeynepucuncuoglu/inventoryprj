@@ -22,9 +22,20 @@ public class ProductRepositoryAdapter implements ProductRepository {
 
     @Override
     public Product save(Product product) {
-        ProductEntity entity = toEntity(product);
-        ProductEntity saved = jpa.save(entity);
-        return toDomain(saved);
+        // For existing entities, load the managed entity first so JPA keeps the @Version
+        // value — without this, saving a builder-constructed entity with null version
+        // would trigger INSERT (duplicate key) instead of UPDATE.
+        ProductEntity entity = jpa.findById(product.getId())
+                .map(existing -> {
+                    existing.setName(product.getName());
+                    existing.setSku(product.getSku());
+                    existing.setCategory(product.getCategory());
+                    existing.setPrice(product.getPrice());
+                    existing.setStockQuantity(product.getStockQuantity());
+                    return existing;
+                })
+                .orElseGet(() -> toEntity(product));
+        return toDomain(jpa.save(entity));
     }
 
     @Override

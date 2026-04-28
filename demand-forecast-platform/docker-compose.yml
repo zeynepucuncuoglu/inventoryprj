@@ -6,6 +6,7 @@ volumes:
   product-db-data:
   order-db-data:
   forecast-db-data:
+  notification-db-data:
   kafka-data:
   zookeeper-data:
   redis-data:
@@ -163,6 +164,24 @@ services:
       interval: 10s
       retries: 5
 
+  notification-db:
+    image: postgres:16-alpine
+    container_name: notification-db
+    environment:
+      POSTGRES_DB: notificationdb
+      POSTGRES_USER: ${NOTIFICATION_DB_USER:-notification_user}
+      POSTGRES_PASSWORD: ${NOTIFICATION_DB_PASSWORD:-notification_pass}
+    ports:
+      - "5436:5432"
+    volumes:
+      - notification-db-data:/var/lib/postgresql/data
+    networks:
+      - forecast-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${NOTIFICATION_DB_USER:-notification_user} -d notificationdb"]
+      interval: 10s
+      retries: 5
+
   # ─────────────────────────────────────────────
   # Application Services
   # ─────────────────────────────────────────────
@@ -254,8 +273,13 @@ services:
     ports:
       - "8084:8084"
     environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://notification-db:5432/notificationdb
+      SPRING_DATASOURCE_USERNAME: ${NOTIFICATION_DB_USER:-notification_user}
+      SPRING_DATASOURCE_PASSWORD: ${NOTIFICATION_DB_PASSWORD:-notification_pass}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     depends_on:
+      notification-db:
+        condition: service_healthy
       kafka:
         condition: service_healthy
     networks:

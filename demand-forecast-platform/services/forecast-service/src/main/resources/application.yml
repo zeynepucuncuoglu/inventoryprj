@@ -83,6 +83,13 @@ management:
     circuitbreakers:
       enabled: true
 
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha
+  api-docs:
+    path: /v3/api-docs
+
 logging:
   level:
     com.forecast.forecastsvc: DEBUG

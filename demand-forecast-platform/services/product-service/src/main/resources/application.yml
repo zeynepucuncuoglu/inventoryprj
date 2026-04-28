@@ -54,6 +54,13 @@ management:
     health:
       show-details: always
 
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha
+  api-docs:
+    path: /v3/api-docs
+
 logging:
   level:
     com.forecast.product: DEBUG

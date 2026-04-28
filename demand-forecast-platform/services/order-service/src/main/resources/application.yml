@@ -51,6 +51,13 @@ management:
       exposure:
         include: health,info,metrics
 
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha
+  api-docs:
+    path: /v3/api-docs
+
 logging:
   level:
     com.forecast.order: DEBUG

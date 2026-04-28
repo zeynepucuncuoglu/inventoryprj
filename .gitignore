@@ -1,0 +1,19 @@
+# Maven build output
+**/target/
+
+# Python
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+.pytest_cache/
+**/.pytest_cache/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# Environment
+.env
+*.env.local

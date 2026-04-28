@@ -32,12 +32,11 @@ def forecast(request: ForecastRequest):
         request.model, len(request.historical_data)
     )
 
-    try:
-        if request.model == "prophet":
-            result = run_prophet_forecast(request)
-        else:
-            raise HTTPException(status_code=400, detail=f"Unsupported model: {request.model}")
+    if request.model != "prophet":
+        raise HTTPException(status_code=400, detail=f"Unsupported model: {request.model}")
 
+    try:
+        result = run_prophet_forecast(request)
         logger.info("Forecast complete: product_id=%s mae=%.4f", request.product_id, result.mae)
         return result
 

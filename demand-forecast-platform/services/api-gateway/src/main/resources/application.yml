@@ -99,17 +99,35 @@ resilience4j:
   circuitbreaker:
     instances:
       product-service:
-        sliding-window-size: 10
+        sliding-window-size: 20
+        minimum-number-of-calls: 10
         failure-rate-threshold: 50
-        wait-duration-in-open-state: 15s
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+        record-exceptions:
+          - java.io.IOException
+          - java.util.concurrent.TimeoutException
+          - org.springframework.web.reactive.function.client.WebClientRequestException
       order-service:
-        sliding-window-size: 10
+        sliding-window-size: 20
+        minimum-number-of-calls: 10
         failure-rate-threshold: 50
-        wait-duration-in-open-state: 15s
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+        record-exceptions:
+          - java.io.IOException
+          - java.util.concurrent.TimeoutException
+          - org.springframework.web.reactive.function.client.WebClientRequestException
       forecast-service:
-        sliding-window-size: 10
+        sliding-window-size: 20
+        minimum-number-of-calls: 10
         failure-rate-threshold: 50
-        wait-duration-in-open-state: 15s
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+        record-exceptions:
+          - java.io.IOException
+          - java.util.concurrent.TimeoutException
+          - org.springframework.web.reactive.function.client.WebClientRequestException
 
 management:
   endpoints:

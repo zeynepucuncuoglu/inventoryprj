@@ -129,6 +129,15 @@ resilience4j:
           - java.util.concurrent.TimeoutException
           - org.springframework.web.reactive.function.client.WebClientRequestException
 
+  timelimiter:
+    instances:
+      product-service:
+        timeout-duration: 15s
+      order-service:
+        timeout-duration: 15s
+      forecast-service:
+        timeout-duration: 15s
+
 management:
   endpoints:
     web:

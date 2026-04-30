@@ -37,7 +37,8 @@ public class ForecastEventConsumer {
 
     @KafkaListener(
             topics = "forecast.completed",
-            groupId = "notification-service-forecast-events"
+            groupId = "notification-service-forecast-events",
+            containerFactory = "forecastEventsFactory"
     )
     public void onForecastEvent(
             @Payload ForecastEventMessage event,

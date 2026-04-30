@@ -27,7 +27,8 @@ public class ProductEventConsumer {
 
     @KafkaListener(
             topics = "product.events",
-            groupId = "notification-service-product-events"
+            groupId = "notification-service-product-events",
+            containerFactory = "productEventsFactory"
     )
     public void onProductEvent(
             @Payload ProductEventMessage event,

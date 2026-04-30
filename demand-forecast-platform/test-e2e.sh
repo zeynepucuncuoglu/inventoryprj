@@ -126,7 +126,7 @@ echo ""
 info "4. Order state machine (PENDING→CONFIRMED→SHIPPED→DELIVERED)..."
 
 do_curl 201 POST "$GATEWAY/api/v1/orders" \
-  "{\"customerId\":\"cust-e2e\",\"items\":[{\"productId\":\"$PRODUCT_ID\",\"sku\":\"$SKU\",\"quantity\":2,\"unitPrice\":49.99}]}"
+  "{\"customerId\":\"00000000-0000-0000-0000-000000000001\",\"items\":[{\"productId\":\"$PRODUCT_ID\",\"sku\":\"$SKU\",\"quantity\":2,\"unitPrice\":49.99}]}"
 ORDER_ID=$(jq_field "['id']")
 ok "Order created (PENDING): id=$ORDER_ID"
 

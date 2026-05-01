@@ -143,19 +143,30 @@ ok "SHIPPED → DELIVERED"
 s=$(curl -s -o /dev/null -w "%{http_code}" -X PATCH \
   "$GATEWAY/api/v1/orders/$ORDER_ID/cancel" \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json")
-[[ "$s" == "422" ]] || fail "Cancel DELIVERED → expected 422, got $s"
-ok "Cancel after DELIVERED → 422"
+[[ "$s" == "409" ]] || fail "Cancel DELIVERED → expected 409, got $s"
+ok "Cancel after DELIVERED → 409"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 5. ML SERVICE — direct call
 # ══════════════════════════════════════════════════════════════════════════════
 echo ""
 info "5. ML Inference Service..."
-s=$(curl -s -o "$BODY" -w "%{http_code}" -X POST "$ML_SVC/predict" \
+
+# Build 20 days of synthetic historical data (min 14 required)
+HIST_DATA=$(python3 -c "
+import json, datetime
+today = datetime.date.today()
+pts = [{'date': str(today - datetime.timedelta(days=20-i)), 'quantity': 10 + i % 5}
+       for i in range(20)]
+print(json.dumps(pts))
+")
+
+ML_BODY="{\"product_id\":\"$PRODUCT_ID\",\"sku\":\"$SKU\",\"horizon_days\":30,\"historical_data\":$HIST_DATA}"
+s=$(curl -s -o "$BODY" -w "%{http_code}" -X POST "$ML_SVC/api/v1/forecast" \
   -H "Content-Type: application/json" \
-  -d "{\"product_id\":\"$PRODUCT_ID\",\"sku\":\"$SKU\",\"horizon_days\":30}")
-[[ "$s" == "200" ]] || fail "ML /predict → expected 200, got $s"
-PREDICTED=$(jq_field "['total_predicted_demand']")
+  -d "$ML_BODY")
+[[ "$s" == "200" ]] || fail "ML /api/v1/forecast → expected 200, got $s"
+PREDICTED=$(python3 -c "import sys,json; d=json.load(sys.stdin); print(round(sum(p['predicted_quantity'] for p in d['forecast']), 1))" < "$BODY")
 ok "30-day forecast: predicted demand = $PREDICTED units"
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -164,8 +175,8 @@ ok "30-day forecast: predicted demand = $PREDICTED units"
 echo ""
 info "6. Forecast Service..."
 do_curl 202 POST "$GATEWAY/api/v1/forecasts" \
-  "{\"productId\":\"$PRODUCT_ID\",\"sku\":\"$SKU\",\"horizonDays\":30}"
-JOB_ID=$(jq_field "['jobId']")
+  "{\"productId\":\"$PRODUCT_ID\",\"sku\":\"$SKU\",\"horizonDays\":30,\"historicalData\":$HIST_DATA}"
+JOB_ID=$(jq_field "['id']")
 ok "Forecast job triggered: jobId=$JOB_ID"
 
 info "  Waiting 5s for forecast + Kafka propagation..."

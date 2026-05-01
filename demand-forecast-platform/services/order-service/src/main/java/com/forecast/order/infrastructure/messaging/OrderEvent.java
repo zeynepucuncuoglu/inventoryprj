@@ -24,6 +24,7 @@ public record OrderEvent(
     public static final String ORDER_PLACED    = "ORDER_PLACED";
     public static final String ORDER_CONFIRMED = "ORDER_CONFIRMED";
     public static final String ORDER_SHIPPED   = "ORDER_SHIPPED";
+    public static final String ORDER_DELIVERED = "ORDER_DELIVERED";
     public static final String ORDER_CANCELLED = "ORDER_CANCELLED";
 
     public record OrderEventItem(

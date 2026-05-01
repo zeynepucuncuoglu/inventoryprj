@@ -81,6 +81,19 @@ public class OrderController {
         return ResponseEntity.ok(orderService.shipOrder(id));
     }
 
+    @Operation(summary = "Deliver an order",
+            description = "Transitions order from SHIPPED to DELIVERED.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Order delivered"),
+            @ApiResponse(responseCode = "422", description = "Order is not in SHIPPED status"),
+            @ApiResponse(responseCode = "404", description = "Order not found")
+    })
+    @PatchMapping("/{id}/deliver")
+    public ResponseEntity<OrderResponse> deliverOrder(
+            @Parameter(description = "Order UUID") @PathVariable UUID id) {
+        return ResponseEntity.ok(orderService.deliverOrder(id));
+    }
+
     @Operation(summary = "Cancel an order",
             description = "Cancels an order. Only PENDING and CONFIRMED orders can be cancelled — " +
                     "SHIPPED and DELIVERED orders cannot.")

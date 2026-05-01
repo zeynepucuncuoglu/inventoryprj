@@ -72,6 +72,16 @@ public class OrderService {
     }
 
     @Transactional
+    public OrderResponse deliverOrder(UUID id) {
+        Order order = findOrThrow(id);
+        order.deliver();
+        Order saved = orderRepository.save(order);
+        log.info("Order delivered: id={}", id);
+        eventPublisher.publishOrderDelivered(saved);
+        return OrderResponse.from(saved);
+    }
+
+    @Transactional
     public OrderResponse cancelOrder(UUID id) {
         Order order = findOrThrow(id);
         order.cancel();  // domain: can't cancel SHIPPED or DELIVERED

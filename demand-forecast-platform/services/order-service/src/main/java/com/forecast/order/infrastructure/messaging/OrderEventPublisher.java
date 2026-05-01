@@ -29,6 +29,10 @@ public class OrderEventPublisher {
         send(OrderEvent.ORDER_SHIPPED, order);
     }
 
+    public void publishOrderDelivered(Order order) {
+        send(OrderEvent.ORDER_DELIVERED, order);
+    }
+
     public void publishOrderCancelled(Order order) {
         send(OrderEvent.ORDER_CANCELLED, order);
     }

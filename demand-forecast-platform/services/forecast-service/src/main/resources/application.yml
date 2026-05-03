@@ -78,10 +78,13 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,circuitbreakers
+        include: health,info,metrics,prometheus,circuitbreakers
   health:
     circuitbreakers:
       enabled: true
+  metrics:
+    tags:
+      application: forecast-service
 
 springdoc:
   swagger-ui:

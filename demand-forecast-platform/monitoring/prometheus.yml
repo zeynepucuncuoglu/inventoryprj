@@ -1,0 +1,80 @@
+global:
+  scrape_interval:     15s
+  evaluation_interval: 15s
+  external_labels:
+    environment: development
+    platform:    demand-forecast
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+rule_files:
+  - '/etc/prometheus/alerts/*.yml'
+
+scrape_configs:
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # ─────────────────────────────────────────────────────────────
+  # Spring Boot services — actuator/prometheus endpoint
+  # Requires micrometer-registry-prometheus in each pom.xml
+  # and management.endpoints.web.exposure.include=prometheus in application.yml
+  # ─────────────────────────────────────────────────────────────
+
+  - job_name: api-gateway
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['api-gateway:8080']
+        labels:
+          service: api-gateway
+          tier:    gateway
+
+  - job_name: product-service
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['product-service:8081']
+        labels:
+          service: product-service
+          tier:    backend
+
+  - job_name: order-service
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['order-service:8082']
+        labels:
+          service: order-service
+          tier:    backend
+
+  - job_name: forecast-service
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['forecast-service:8083']
+        labels:
+          service: forecast-service
+          tier:    backend
+
+  - job_name: notification-service
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['notification-service:8084']
+        labels:
+          service: notification-service
+          tier:    backend
+
+  # ─────────────────────────────────────────────────────────────
+  # Python FastAPI service — requires prometheus-fastapi-instrumentator
+  # Add to requirements.txt: prometheus-fastapi-instrumentator==6.1.0
+  # Add to main.py: Instrumentator().instrument(app).expose(app)
+  # ─────────────────────────────────────────────────────────────
+
+  - job_name: ml-inference-service
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['ml-inference-service:8000']
+        labels:
+          service: ml-inference-service
+          tier:    ml

@@ -1,0 +1,198 @@
+pipeline {
+    agent any
+
+    environment {
+        COMPOSE_DIR  = 'demand-forecast-platform'
+        IMAGE_PREFIX = 'demand-forecast'
+    }
+
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        timeout(time: 60, unit: 'MINUTES')
+        timestamps()
+        ansiColor('xterm')
+        skipDefaultCheckout()
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+                sh 'git log --oneline -5'
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────
+        // All 6 services tested in parallel (5 Java + 1 Python)
+        // ─────────────────────────────────────────────────────────
+        stage('Test') {
+            parallel {
+
+                stage('api-gateway') {
+                    steps {
+                        dir("${COMPOSE_DIR}/services/api-gateway") {
+                            sh 'mvn test -B --no-transfer-progress'
+                        }
+                    }
+                }
+
+                stage('product-service') {
+                    steps {
+                        dir("${COMPOSE_DIR}/services/product-service") {
+                            sh 'mvn test -B --no-transfer-progress'
+                        }
+                    }
+                }
+
+                stage('order-service') {
+                    steps {
+                        dir("${COMPOSE_DIR}/services/order-service") {
+                            sh 'mvn test -B --no-transfer-progress'
+                        }
+                    }
+                }
+
+                stage('forecast-service') {
+                    steps {
+                        dir("${COMPOSE_DIR}/services/forecast-service") {
+                            sh 'mvn test -B --no-transfer-progress'
+                        }
+                    }
+                }
+
+                stage('notification-service') {
+                    steps {
+                        dir("${COMPOSE_DIR}/services/notification-service") {
+                            sh 'mvn test -B --no-transfer-progress'
+                        }
+                    }
+                }
+
+                stage('ml-inference-service') {
+                    steps {
+                        dir("${COMPOSE_DIR}/services/ml-inference-service") {
+                            sh '''
+                                python3 -m venv .venv
+                                . .venv/bin/activate
+                                pip install \
+                                  fastapi==0.111.0 "uvicorn[standard]==0.29.0" pydantic==2.7.0 \
+                                  pandas==2.2.2 numpy==1.26.4 scikit-learn==1.4.2 joblib==1.4.2 \
+                                  httpx==0.27.0 pytest==8.2.0 pytest-asyncio==0.23.6 --quiet
+                                pytest tests/ -v --tb=short --junitxml=test-results.xml
+                            '''
+                        }
+                    }
+                }
+
+            }
+            post {
+                always {
+                    junit allowEmptyResults: true,
+                          testResults: '**/surefire-reports/*.xml,**/test-results.xml'
+                }
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────
+        // Build all 6 Docker images in parallel
+        // ─────────────────────────────────────────────────────────
+        stage('Build Docker Images') {
+            steps {
+                script {
+                    def services = [
+                        'api-gateway', 'product-service', 'order-service',
+                        'forecast-service', 'notification-service', 'ml-inference-service'
+                    ]
+                    def buildTasks = [:]
+                    services.each { svc ->
+                        def s = svc
+                        buildTasks["build-${s}"] = {
+                            sh "docker build -t ${IMAGE_PREFIX}-${s}:${BUILD_NUMBER} -t ${IMAGE_PREFIX}-${s}:latest ${COMPOSE_DIR}/services/${s}"
+                        }
+                    }
+                    parallel buildTasks
+                }
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────
+        // Push to Docker Hub — main branch only
+        // Requires Jenkins credential: docker-hub-credentials
+        // ─────────────────────────────────────────────────────────
+        stage('Push to Docker Hub') {
+            when {
+                branch 'main'
+            }
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'docker-hub-credentials',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+                    sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
+                    script {
+                        def services = [
+                            'api-gateway', 'product-service', 'order-service',
+                            'forecast-service', 'notification-service', 'ml-inference-service'
+                        ]
+                        services.each { svc ->
+                            sh """
+                                docker tag ${IMAGE_PREFIX}-${svc}:${BUILD_NUMBER} \$DOCKER_USER/${IMAGE_PREFIX}-${svc}:${BUILD_NUMBER}
+                                docker tag ${IMAGE_PREFIX}-${svc}:latest          \$DOCKER_USER/${IMAGE_PREFIX}-${svc}:latest
+                                docker push \$DOCKER_USER/${IMAGE_PREFIX}-${svc}:${BUILD_NUMBER}
+                                docker push \$DOCKER_USER/${IMAGE_PREFIX}-${svc}:latest
+                            """
+                        }
+                    }
+                }
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────
+        // Deploy via Docker Compose, then verify health — main only
+        // ─────────────────────────────────────────────────────────
+        stage('Deploy') {
+            when {
+                branch 'main'
+            }
+            steps {
+                dir(COMPOSE_DIR) {
+                    sh 'docker compose pull --quiet'
+                    sh 'docker compose up -d --remove-orphans'
+                    sh 'sleep 30'
+                    sh 'bash scripts/health-check.sh'
+                }
+            }
+        }
+
+    }
+
+    post {
+        success {
+            script {
+                if (env.SLACK_WEBHOOK_URL) {
+                    sh """
+                        curl -s -X POST "\${SLACK_WEBHOOK_URL}" \
+                          -H 'Content-Type: application/json' \
+                          -d '{"text":":white_check_mark: *Build #${BUILD_NUMBER} succeeded* — \`${GIT_BRANCH}\`\\n<${BUILD_URL}|Open in Jenkins>"}'
+                    """
+                }
+            }
+        }
+        failure {
+            script {
+                if (env.SLACK_WEBHOOK_URL) {
+                    sh """
+                        curl -s -X POST "\${SLACK_WEBHOOK_URL}" \
+                          -H 'Content-Type: application/json' \
+                          -d '{"text":":x: *Build #${BUILD_NUMBER} FAILED* — \`${GIT_BRANCH}\`\\n<${BUILD_URL}|Open in Jenkins>"}'
+                    """
+                }
+            }
+        }
+        always {
+            sh 'docker logout || true'
+        }
+    }
+}

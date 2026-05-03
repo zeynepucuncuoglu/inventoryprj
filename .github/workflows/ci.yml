@@ -1,22 +1,33 @@
-name: CI
+name: CI Pipeline
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
+    paths:
+      - 'demand-forecast-platform/**'
+      - '.github/workflows/**'
   pull_request:
     branches: [main]
+    paths:
+      - 'demand-forecast-platform/**'
+
+env:
+  IMAGE_PREFIX: ${{ secrets.DOCKER_USERNAME }}/demand-forecast
 
 jobs:
+
   # ─────────────────────────────────────────────────────────────
   # Java services — unit + Testcontainers integration tests
+  # Includes api-gateway (Spring Cloud Gateway + circuit breaker)
   # ─────────────────────────────────────────────────────────────
-  test-java-services:
-    name: Test · ${{ matrix.service }}
+  test-java:
+    name: Test ${{ matrix.service }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         service:
+          - api-gateway
           - product-service
           - order-service
           - forecast-service
@@ -25,28 +36,37 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Java 21
+      - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
           java-version: '21'
-          distribution: 'temurin'
+          distribution: temurin
           cache: maven
 
-      - name: Test
+      - name: Run Maven tests
         working-directory: demand-forecast-platform/services/${{ matrix.service }}
-        run: mvn test -B
+        run: mvn test -B --no-transfer-progress
+
+      - name: Upload Surefire reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-${{ matrix.service }}
+          path: demand-forecast-platform/services/${{ matrix.service }}/target/surefire-reports/
+          if-no-files-found: ignore
 
   # ─────────────────────────────────────────────────────────────
-  # Python ML inference service
+  # Python ML inference service (FastAPI + pytest)
   # ─────────────────────────────────────────────────────────────
-  test-ml-service:
-    name: Test · ml-inference-service
+  test-python:
+    name: Test ml-inference-service
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
           cache: pip
@@ -54,8 +74,8 @@ jobs:
 
       - name: Install dependencies
         working-directory: demand-forecast-platform/services/ml-inference-service
-        # prophet is in requirements.txt for Docker but not needed at runtime —
-        # the forecaster uses numpy/pandas only. Skip it to keep CI fast.
+        # prophet requires CmdStan which bloats CI; skip it since the
+        # forecaster uses numpy/pandas only (see prophet_forecaster.py)
         run: |
           pip install \
             fastapi==0.111.0 \
@@ -69,27 +89,35 @@ jobs:
             pytest==8.2.0 \
             pytest-asyncio==0.23.6
 
-      - name: Test
+      - name: Run pytest
         working-directory: demand-forecast-platform/services/ml-inference-service
-        run: pytest tests/ -v
+        run: pytest tests/ -v --tb=short --junitxml=test-results.xml
+
+      - name: Upload pytest results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-results
+          path: demand-forecast-platform/services/ml-inference-service/test-results.xml
+          if-no-files-found: ignore
 
   # ─────────────────────────────────────────────────────────────
-  # Docker image builds — verifies each service produces a valid image
-  # Runs only after all tests pass
+  # Docker build for all 6 services
+  # Pushes to Docker Hub only on main branch merges
   # ─────────────────────────────────────────────────────────────
-  docker-build:
-    name: Docker · ${{ matrix.service }}
+  build-and-push:
+    name: Build ${{ matrix.service }}
     runs-on: ubuntu-latest
-    needs: [test-java-services, test-ml-service]
+    needs: [test-java, test-python]
     strategy:
       fail-fast: false
       matrix:
         service:
+          - api-gateway
           - product-service
           - order-service
           - forecast-service
           - notification-service
-          - api-gateway
           - ml-inference-service
 
     steps:
@@ -98,11 +126,39 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build image
+      - name: Log in to Docker Hub
+        if: secrets.DOCKER_USERNAME != '' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: demand-forecast-platform/services/${{ matrix.service }}
-          push: false
-          tags: ${{ matrix.service }}:ci
+          push: ${{ secrets.DOCKER_USERNAME != '' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          tags: |
+            ${{ env.IMAGE_PREFIX }}-${{ matrix.service }}:latest
+            ${{ env.IMAGE_PREFIX }}-${{ matrix.service }}:${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,scope=${{ matrix.service }},mode=max
+
+  # ─────────────────────────────────────────────────────────────
+  # Required status check — blocks PR merge if any job fails
+  # ─────────────────────────────────────────────────────────────
+  ci-complete:
+    name: CI Complete
+    runs-on: ubuntu-latest
+    needs: [test-java, test-python, build-and-push]
+    if: always()
+    steps:
+      - name: All jobs must pass
+        run: |
+          if [[ "${{ needs.test-java.result }}"      != "success" ]] || \
+             [[ "${{ needs.test-python.result }}"    != "success" ]] || \
+             [[ "${{ needs.build-and-push.result }}" != "success" ]]; then
+            echo "One or more CI jobs failed"
+            exit 1
+          fi
+          echo "All CI jobs passed"

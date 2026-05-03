@@ -1,0 +1,353 @@
+{
+  "uid": "demand-forecast-overview",
+  "title": "DemandForecast Platform Overview",
+  "tags": ["demand-forecast", "microservices", "sla"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "version": 1,
+  "time": { "from": "now-1h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "query": "label_values(up, job)",
+        "multi": true,
+        "includeAll": true,
+        "current": { "text": "All", "value": "$__all" },
+        "refresh": 2
+      }
+    ]
+  },
+  "panels": [
+
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Service Health",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 1 },
+      "collapsed": false
+    },
+
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "API Gateway",
+      "gridPos": { "x": 0, "y": 1, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "up{job=\"api-gateway\"}", "legendFormat": "api-gateway", "refId": "A" }],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "mappings": [
+          { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+        ]
+      }
+    },
+
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Product Service",
+      "gridPos": { "x": 4, "y": 1, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "up{job=\"product-service\"}", "legendFormat": "product-service", "refId": "A" }],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "mappings": [
+          { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+        ]
+      }
+    },
+
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Order Service",
+      "gridPos": { "x": 8, "y": 1, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "up{job=\"order-service\"}", "legendFormat": "order-service", "refId": "A" }],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "mappings": [
+          { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+        ]
+      }
+    },
+
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Forecast Service",
+      "gridPos": { "x": 12, "y": 1, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "up{job=\"forecast-service\"}", "legendFormat": "forecast-service", "refId": "A" }],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "mappings": [
+          { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+        ]
+      }
+    },
+
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Notification Service",
+      "gridPos": { "x": 16, "y": 1, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "up{job=\"notification-service\"}", "legendFormat": "notification-service", "refId": "A" }],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "mappings": [
+          { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+        ]
+      }
+    },
+
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "ML Inference Service",
+      "gridPos": { "x": 20, "y": 1, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "up{job=\"ml-inference-service\"}", "legendFormat": "ml-inference-service", "refId": "A" }],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "mappings": [
+          { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+        ]
+      }
+    },
+
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "Platform Uptime (24 h)",
+      "description": "Average uptime across all services vs 99% SLA",
+      "gridPos": { "x": 0, "y": 5, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "avg(avg_over_time(up[24h])) * 100",
+        "legendFormat": "Uptime %",
+        "refId": "A"
+      }],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "area",
+        "orientation": "horizontal"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 95,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red",    "value": null },
+              { "color": "yellow", "value": 99   },
+              { "color": "green",  "value": 99.5 }
+            ]
+          }
+        }
+      }
+    },
+
+    {
+      "id": 9,
+      "type": "row",
+      "title": "Request Rate & Latency",
+      "gridPos": { "x": 0, "y": 9, "w": 24, "h": 1 },
+      "collapsed": false
+    },
+
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "HTTP Request Rate (req/s)",
+      "gridPos": { "x": 0, "y": 10, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum(rate(http_server_requests_seconds_count{job=\"api-gateway\"}[5m]))",          "legendFormat": "api-gateway",          "refId": "A" },
+        { "expr": "sum(rate(http_server_requests_seconds_count{job=\"product-service\"}[5m]))",      "legendFormat": "product-service",      "refId": "B" },
+        { "expr": "sum(rate(http_server_requests_seconds_count{job=\"order-service\"}[5m]))",        "legendFormat": "order-service",        "refId": "C" },
+        { "expr": "sum(rate(http_server_requests_seconds_count{job=\"forecast-service\"}[5m]))",     "legendFormat": "forecast-service",     "refId": "D" },
+        { "expr": "sum(rate(http_server_requests_seconds_count{job=\"notification-service\"}[5m]))", "legendFormat": "notification-service", "refId": "E" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "lineWidth": 2 } }
+      }
+    },
+
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "HTTP Latency Percentiles (p50 / p95 / p99)",
+      "gridPos": { "x": 12, "y": 10, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(http_server_requests_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p50", "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95", "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p99", "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "lineWidth": 2 },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green",  "value": null },
+              { "color": "yellow", "value": 0.5  },
+              { "color": "red",    "value": 1.0  }
+            ]
+          }
+        }
+      }
+    },
+
+    {
+      "id": 12,
+      "type": "row",
+      "title": "Error Tracking",
+      "gridPos": { "x": 0, "y": 18, "w": 24, "h": 1 },
+      "collapsed": false
+    },
+
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Error Rate by Service (%)",
+      "gridPos": { "x": 0, "y": 19, "w": 24, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "100 * sum(rate(http_server_requests_seconds_count{job=\"api-gateway\",status=~\"5..\"}[5m])) / sum(rate(http_server_requests_seconds_count{job=\"api-gateway\"}[5m]))",
+          "legendFormat": "api-gateway", "refId": "A"
+        },
+        {
+          "expr": "100 * sum(rate(http_server_requests_seconds_count{job=\"product-service\",status=~\"5..\"}[5m])) / sum(rate(http_server_requests_seconds_count{job=\"product-service\"}[5m]))",
+          "legendFormat": "product-service", "refId": "B"
+        },
+        {
+          "expr": "100 * sum(rate(http_server_requests_seconds_count{job=\"order-service\",status=~\"5..\"}[5m])) / sum(rate(http_server_requests_seconds_count{job=\"order-service\"}[5m]))",
+          "legendFormat": "order-service", "refId": "C"
+        },
+        {
+          "expr": "100 * sum(rate(http_server_requests_seconds_count{job=\"forecast-service\",status=~\"5..\"}[5m])) / sum(rate(http_server_requests_seconds_count{job=\"forecast-service\"}[5m]))",
+          "legendFormat": "forecast-service", "refId": "D"
+        },
+        {
+          "expr": "100 * sum(rate(http_server_requests_seconds_count{job=\"notification-service\",status=~\"5..\"}[5m])) / sum(rate(http_server_requests_seconds_count{job=\"notification-service\"}[5m]))",
+          "legendFormat": "notification-service", "refId": "E"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "custom": { "lineWidth": 2 },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green",  "value": null },
+              { "color": "yellow", "value": 1    },
+              { "color": "red",    "value": 5    }
+            ]
+          }
+        }
+      }
+    },
+
+    {
+      "id": 14,
+      "type": "row",
+      "title": "JVM & Kafka",
+      "gridPos": { "x": 0, "y": 27, "w": 24, "h": 1 },
+      "collapsed": false
+    },
+
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "JVM Heap Usage",
+      "gridPos": { "x": 0, "y": 28, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "jvm_memory_used_bytes{area=\"heap\",job=\"product-service\"}",
+          "legendFormat": "product-service heap", "refId": "A"
+        },
+        {
+          "expr": "jvm_memory_used_bytes{area=\"heap\",job=\"order-service\"}",
+          "legendFormat": "order-service heap", "refId": "B"
+        },
+        {
+          "expr": "jvm_memory_used_bytes{area=\"heap\",job=\"forecast-service\"}",
+          "legendFormat": "forecast-service heap", "refId": "C"
+        },
+        {
+          "expr": "jvm_memory_used_bytes{area=\"heap\",job=\"notification-service\"}",
+          "legendFormat": "notification-service heap", "refId": "D"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "bytes", "custom": { "lineWidth": 2 } }
+      }
+    },
+
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Kafka Consumer Lag",
+      "gridPos": { "x": 12, "y": 28, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(kafka_consumer_fetch_manager_records_lag) by (client_id)",
+          "legendFormat": "{{ client_id }}", "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "lineWidth": 2 },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green",  "value": null },
+              { "color": "yellow", "value": 500  },
+              { "color": "red",    "value": 1000 }
+            ]
+          }
+        }
+      }
+    }
+
+  ]
+}

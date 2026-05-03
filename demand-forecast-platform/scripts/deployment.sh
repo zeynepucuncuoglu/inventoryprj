@@ -82,6 +82,12 @@ fi
 
 notify_slack ":rocket: Deployment started on \$(hostname) at $(date '+%Y-%m-%d %H:%M:%S')"
 
+# Deploy geçmişine mevcut SHA'yı kaydet (rollback için kullanılır)
+CURRENT_SHA=$(git -C "$COMPOSE_DIR" rev-parse HEAD 2>/dev/null || echo "unknown")
+CURRENT_MSG=$(git -C "$COMPOSE_DIR" log -1 --pretty=%s 2>/dev/null || echo "")
+echo "$(date '+%Y-%m-%d %H:%M:%S') ${CURRENT_SHA} ${CURRENT_MSG}" >> "${COMPOSE_DIR}/.deploy-history"
+log "Deploy kaydedildi: ${CURRENT_SHA:0:8} — ${CURRENT_MSG}"
+
 # Step 1: Pull latest images
 if [[ "$SKIP_PULL" == "false" ]]; then
   log "Pulling latest Docker images..."

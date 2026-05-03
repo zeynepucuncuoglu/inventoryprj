@@ -73,6 +73,7 @@ Built as a portfolio project demonstrating production-grade backend engineering 
 | API docs | springdoc-openapi 2.5.0 / Swagger UI |
 | Testing | JUnit 5, Mockito, Testcontainers, pytest |
 | CI/CD | GitHub Actions — test matrix → Docker build |
+| Monitoring | Prometheus 2.51, Grafana 10.4, Micrometer |
 | Infra | Docker Compose, Redis 7.2 |
 
 ---
@@ -100,6 +101,8 @@ On first boot, `kafka-init` creates all topics and each service runs its Flyway 
 | http://localhost:8083/swagger-ui.html | Forecast Service API |
 | http://localhost:8084/swagger-ui.html | Notification Service API |
 | http://localhost:8000/docs | ML Inference Service API |
+| http://localhost:9090 | Prometheus — raw metrics and alert rules |
+| http://localhost:3000 | Grafana — dashboards (admin / admin) |
 
 ---
 
@@ -181,11 +184,79 @@ Testcontainers tests spin up a real PostgreSQL 16 container and run Flyway migra
 
 ## CI/CD
 
-GitHub Actions pipeline defined in [`.github/workflows/ci.yml`](.github/workflows/ci.yml):
+GitHub Actions pipeline defined in [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
-1. **Test Java services** — matrix build across all 4 Java services with Java 21 (Temurin)
-2. **Test ML service** — Python 3.12, pytest
-3. **Docker build** — builds all 6 service images after tests pass, uses GHA layer cache
+Every push to `main` or `develop` that touches `demand-forecast-platform/**` runs the full pipeline:
+
+```
+push
+ ├── Test api-gateway          ┐
+ ├── Test product-service      │  parallel — all 5 Java services
+ ├── Test order-service        │  mvn test -B (JUnit + Testcontainers)
+ ├── Test forecast-service     │
+ ├── Test notification-service ┘
+ ├── Test ml-inference-service    pytest, Python 3.12
+ │
+ └── (after all tests pass)
+      ├── Build api-gateway          ┐
+      ├── Build product-service      │  parallel — all 6 Docker images
+      ├── Build order-service        │  push: false (build verification only)
+      ├── Build forecast-service     │  uses GHA layer cache per service
+      ├── Build notification-service │
+      └── Build ml-inference-service ┘
+```
+
+The `CI Complete` gate job blocks PR merges if any step fails.
+
+A local Jenkins pipeline is also available via [`demand-forecast-platform/Jenkinsfile`](demand-forecast-platform/Jenkinsfile) for self-hosted deployments — same stages with parallel builds and Slack notifications on success/failure.
+
+---
+
+## Monitoring
+
+Prometheus and Grafana are included in the Docker Compose stack.
+
+```bash
+docker compose up -d prometheus grafana
+```
+
+| Tool | URL | Credentials |
+|---|---|---|
+| Prometheus | http://localhost:9090 | — |
+| Grafana | http://localhost:3000 | admin / admin |
+
+The **DemandForecast Platform Overview** dashboard auto-provisions on first start and shows:
+
+- Service health (UP / DOWN) for all 6 services
+- 24-hour uptime percentage vs 99% SLA target
+- HTTP request rate per service
+- Latency percentiles — p50, p95, p99
+- Error rate (HTTP 5xx) per service
+- JVM heap usage (Java services)
+- Kafka consumer lag
+
+Alert rules in [`monitoring/alerts/service_alerts.yml`](demand-forecast-platform/monitoring/alerts/service_alerts.yml) fire on: service down, uptime below SLA, error rate > 1%, p95 latency > 500 ms, Kafka lag > 1000, JVM heap > 85%.
+
+Each Java service exposes metrics at `/actuator/prometheus` via `micrometer-registry-prometheus`. Prometheus scrapes all services every 15 seconds.
+
+---
+
+## Automation Scripts
+
+Located in [`demand-forecast-platform/scripts/`](demand-forecast-platform/scripts/):
+
+```bash
+# Check health of all 6 services, Kafka, Redis, and 4 databases
+bash scripts/health-check.sh
+
+# Pull latest images, restart containers, wait for healthy state
+bash scripts/deployment.sh
+
+# Scan logs for ERROR/EXCEPTION patterns, write incident report to logs/
+bash scripts/log-analyzer.sh --since 1h
+```
+
+All scripts send a Slack notification on failure if `SLACK_WEBHOOK_URL` is set in the environment.
 
 ---
 

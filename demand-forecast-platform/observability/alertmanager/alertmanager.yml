@@ -1,0 +1,133 @@
+global:
+  # Re-send alert if still firing after 4 hours
+  resolve_timeout: 5m
+  smtp_smarthost: "smtp.relay.internal:587"
+  smtp_from: "alerts@demand-forecast.internal"
+  smtp_require_tls: true
+
+  # PagerDuty (set in env or secrets manager)
+  pagerduty_url: "https://events.pagerduty.com/v2/enqueue"
+
+templates:
+  - /etc/alertmanager/templates/*.tmpl
+
+# ── Routing tree ──────────────────────────────────────────────────────────────
+route:
+  receiver: "slack-platform-alerts"    # default catch-all
+  group_by: ["alertname", "service", "environment"]
+  group_wait: 30s           # wait to batch alerts in the same group
+  group_interval: 5m        # how long before sending a new notification for an ongoing issue
+  repeat_interval: 4h       # repeat if still firing
+
+  routes:
+    # P1: Critical — service down, DB unreachable — PagerDuty immediately
+    - matchers:
+        - severity = "critical"
+      receiver: "pagerduty-p1"
+      group_wait: 10s
+      repeat_interval: 30m
+      continue: true          # also send to Slack
+
+    # P1: Critical — also notify Slack #incidents
+    - matchers:
+        - severity = "critical"
+      receiver: "slack-incidents"
+      group_wait: 10s
+      repeat_interval: 1h
+
+    # P2: Warning — Slack only, business hours email
+    - matchers:
+        - severity = "warning"
+      receiver: "slack-platform-alerts"
+      group_wait: 60s
+      repeat_interval: 4h
+
+    # Kafka lag — dedicated channel
+    - matchers:
+        - alertname =~ "Kafka.*"
+      receiver: "slack-kafka-ops"
+      group_wait: 30s
+      repeat_interval: 2h
+
+    # Chaos experiments — silence real PD pages
+    - matchers:
+        - chaos = "true"
+      receiver: "slack-chaos-lab"
+
+# ── Inhibition rules ─────────────────────────────────────────────────────────
+inhibit_rules:
+  # If ServiceDown fires, suppress all other alerts from that service
+  - source_matchers:
+      - alertname = "ServiceDown"
+    target_matchers:
+      - severity =~ "warning|critical"
+    equal: ["service"]
+
+  # If entire node is down, suppress individual service alerts
+  - source_matchers:
+      - alertname = "NodeDown"
+    target_matchers:
+      - alertname =~ "ServiceDown|HighErrorRate"
+
+# ── Receivers ────────────────────────────────────────────────────────────────
+receivers:
+  - name: "pagerduty-p1"
+    pagerduty_configs:
+      - service_key: "${PAGERDUTY_SERVICE_KEY}"
+        description: '{{ template "pagerduty.description" . }}'
+        severity: "critical"
+        details:
+          environment: '{{ (index .Alerts 0).Labels.environment }}'
+          service: '{{ (index .Alerts 0).Labels.service }}'
+          runbook: 'https://wiki.internal/runbooks/{{ (index .Alerts 0).Labels.alertname }}'
+          dashboard: 'http://grafana:3000/d/overview'
+        client: "Prometheus Alertmanager"
+        client_url: "http://alertmanager:9093"
+
+  - name: "slack-incidents"
+    slack_configs:
+      - api_url: "${SLACK_WEBHOOK_INCIDENTS}"
+        channel: "#incidents"
+        color: '{{ if eq .Status "firing" }}danger{{ else }}good{{ end }}'
+        title: '{{ template "slack.title" . }}'
+        text: '{{ template "slack.text" . }}'
+        send_resolved: true
+        actions:
+          - type: button
+            text: "Grafana Dashboard"
+            url: "http://grafana:3000/d/overview"
+          - type: button
+            text: "Runbook"
+            url: 'https://wiki.internal/runbooks/{{ (index .Alerts 0).Labels.alertname }}'
+          - type: button
+            text: "Silence 1h"
+            url: 'http://alertmanager:9093/#/silences/new?filter={{"{{"}}alertname%3D"{{ (index .Alerts 0).Labels.alertname }}"{{"}}"}}'
+
+  - name: "slack-platform-alerts"
+    slack_configs:
+      - api_url: "${SLACK_WEBHOOK_PLATFORM}"
+        channel: "#platform-alerts"
+        color: '{{ if eq .Status "firing" }}warning{{ else }}good{{ end }}'
+        title: '{{ template "slack.title" . }}'
+        text: '{{ template "slack.text" . }}'
+        send_resolved: true
+
+  - name: "slack-kafka-ops"
+    slack_configs:
+      - api_url: "${SLACK_WEBHOOK_KAFKA}"
+        channel: "#kafka-ops"
+        title: "[KAFKA] {{ .CommonLabels.alertname }}"
+        text: |
+          *Consumer Group:* {{ .CommonLabels.consumer_group | default "unknown" }}
+          *Topic:* {{ .CommonLabels.topic | default "unknown" }}
+          *Lag:* See Grafana → Kafka panel
+          *Runbook:* https://wiki.internal/runbooks/kafka-lag
+        send_resolved: true
+
+  - name: "slack-chaos-lab"
+    slack_configs:
+      - api_url: "${SLACK_WEBHOOK_CHAOS}"
+        channel: "#chaos-lab"
+        title: "[CHAOS] {{ .CommonLabels.alertname }}"
+        text: "Chaos experiment in progress — alert suppressed from PagerDuty."
+        send_resolved: true

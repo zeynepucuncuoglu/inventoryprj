@@ -1,0 +1,179 @@
+version: "3.9"
+
+# Full observability stack overlay.
+# Run alongside main docker-compose.yml:
+#   docker compose -f docker-compose.yml -f observability/docker-compose.observability.yml up -d
+#
+# Components added:
+#   Logs    : Filebeat → Logstash → Elasticsearch → Kibana
+#   Tracing : Jaeger (all-in-one for dev; use jaeger-operator in K8s prod)
+#   Metrics : Alertmanager (routes Prometheus alerts to PagerDuty/Slack)
+
+networks:
+  forecast-net:
+    external: true
+  observability-net:
+    driver: bridge
+
+volumes:
+  elasticsearch_data:
+  jaeger_data:
+
+services:
+
+  # ────────────────────────────────────────────────────────────
+  # ELASTICSEARCH — log store
+  # ────────────────────────────────────────────────────────────
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.0
+    container_name: elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - xpack.security.enrollment.enabled=false
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+      - cluster.name=demand-forecast-logs
+      - network.host=0.0.0.0
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+    networks:
+      - observability-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health | python3 -c \"import sys,json; d=json.load(sys.stdin); sys.exit(0 if d['status'] in ['green','yellow'] else 1)\""]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    restart: unless-stopped
+
+  # ────────────────────────────────────────────────────────────
+  # LOGSTASH — parse and route logs
+  # ────────────────────────────────────────────────────────────
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.13.0
+    container_name: logstash
+    volumes:
+      - ./elk/logstash/pipeline:/usr/share/logstash/pipeline:ro
+      - ./elk/logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
+    ports:
+      - "5044:5044"   # Filebeat input (Beats protocol)
+      - "5000:5000"   # TCP input (JSON over TCP for direct log shipping)
+      - "9600:9600"   # Logstash API
+    environment:
+      LS_JAVA_OPTS: "-Xmx512m -Xms512m"
+    networks:
+      - observability-net
+      - forecast-net
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:9600/_node/stats"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # ────────────────────────────────────────────────────────────
+  # FILEBEAT — collect container logs from Docker daemon
+  # ────────────────────────────────────────────────────────────
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:8.13.0
+    container_name: filebeat
+    user: root
+    volumes:
+      - ./elk/filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - observability-net
+    depends_on:
+      logstash:
+        condition: service_healthy
+    restart: unless-stopped
+    command: filebeat -e -strict.perms=false
+
+  # ────────────────────────────────────────────────────────────
+  # KIBANA — log visualisation and search
+  # ────────────────────────────────────────────────────────────
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.13.0
+    container_name: kibana
+    ports:
+      - "5601:5601"
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+      KIBANA_SYSTEM_PASSWORD: ""
+      xpack.security.enabled: "false"
+      logging.level: warn
+    networks:
+      - observability-net
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:5601/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+    restart: unless-stopped
+
+  # ────────────────────────────────────────────────────────────
+  # JAEGER — distributed tracing (all-in-one)
+  # ────────────────────────────────────────────────────────────
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    container_name: jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+      SPAN_STORAGE_TYPE: memory
+      QUERY_MAX_CLOCK_SKEW_ADJUSTMENT: 0s
+    ports:
+      - "16686:16686"   # Jaeger UI
+      - "4317:4317"     # OTLP gRPC receiver
+      - "4318:4318"     # OTLP HTTP receiver
+      - "14268:14268"   # Jaeger thrift HTTP (legacy)
+      - "6831:6831/udp" # Jaeger compact thrift UDP (legacy)
+    networks:
+      - forecast-net
+      - observability-net
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:16686/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ────────────────────────────────────────────────────────────
+  # ALERTMANAGER — route Prometheus alerts to PagerDuty / Slack
+  # ────────────────────────────────────────────────────────────
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: alertmanager
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./alertmanager/templates:/etc/alertmanager/templates:ro
+    ports:
+      - "9093:9093"
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+      - "--web.external-url=http://alertmanager:9093"
+      - "--cluster.advertise-address=0.0.0.0:9094"
+    networks:
+      - forecast-net
+      - observability-net
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9093/-/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped

@@ -1,0 +1,525 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Shared template for product, order, forecast, notification services.
+# Each follows the same pattern: Deployment + Service + HPA + PDB.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ══════════════ PRODUCT SERVICE ══════════════════════════════════════════════
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: product-service
+  namespace: demand-forecast
+  labels: { app: product-service, tier: backend }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: product-service }
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  template:
+    metadata:
+      labels: { app: product-service, tier: backend }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "8081"
+    spec:
+      terminationGracePeriodSeconds: 60
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector: { matchLabels: { app: product-service } }
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: product-service
+          image: docker.io/YOUR_DOCKERHUB/demand-forecast-product-service:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8081
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: kubernetes
+            - name: SPRING_DATASOURCE_URL
+              value: jdbc:postgresql://product-db-service.demand-forecast.svc.cluster.local:5432/productdb
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef: { name: demand-forecast-secrets, key: product-db-user }
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: demand-forecast-secrets, key: product-db-password }
+            - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              value: kafka-service.demand-forecast.svc.cluster.local:9092
+            - name: JAVA_OPTS
+              value: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://jaeger.demand-forecast-monitoring.svc.cluster.local:4317
+            - name: OTEL_SERVICE_NAME
+              value: product-service
+          startupProbe:
+            httpGet: { path: /actuator/health/liveness, port: 8081 }
+            failureThreshold: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: 8081 }
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: 8081 }
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests: { cpu: "200m", memory: "512Mi" }
+            limits: { cpu: "1", memory: "1Gi" }
+          lifecycle:
+            preStop:
+              exec: { command: ["sh", "-c", "sleep 15"] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: product-service
+  namespace: demand-forecast
+  labels: { app: product-service }
+spec:
+  selector: { app: product-service }
+  ports:
+    - name: http
+      port: 8081
+      targetPort: 8081
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: product-service-hpa
+  namespace: demand-forecast
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: product-service
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 70 }
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: product-service-pdb
+  namespace: demand-forecast
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app: product-service }
+
+# ══════════════ ORDER SERVICE ════════════════════════════════════════════════
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-service
+  namespace: demand-forecast
+  labels: { app: order-service, tier: backend }
+spec:
+  replicas: 3          # higher replica count — order processing is critical
+  selector:
+    matchLabels: { app: order-service }
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  template:
+    metadata:
+      labels: { app: order-service, tier: backend }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "8082"
+    spec:
+      terminationGracePeriodSeconds: 90   # longer — Kafka consumer needs time to commit offsets
+      containers:
+        - name: order-service
+          image: docker.io/YOUR_DOCKERHUB/demand-forecast-order-service:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8082
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: kubernetes
+            - name: SPRING_DATASOURCE_URL
+              value: jdbc:postgresql://order-db-service.demand-forecast.svc.cluster.local:5432/orderdb
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef: { name: demand-forecast-secrets, key: order-db-user }
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: demand-forecast-secrets, key: order-db-password }
+            - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              value: kafka-service.demand-forecast.svc.cluster.local:9092
+            # Tune Kafka consumer for exactly-once semantics in K8s
+            - name: SPRING_KAFKA_CONSUMER_MAX_POLL_INTERVAL_MS
+              value: "300000"
+            - name: SPRING_KAFKA_CONSUMER_SESSION_TIMEOUT_MS
+              value: "30000"
+            - name: JAVA_OPTS
+              value: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError"
+            - name: OTEL_SERVICE_NAME
+              value: order-service
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://jaeger.demand-forecast-monitoring.svc.cluster.local:4317
+          startupProbe:
+            httpGet: { path: /actuator/health/liveness, port: 8082 }
+            failureThreshold: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: 8082 }
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: 8082 }
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests: { cpu: "250m", memory: "512Mi" }
+            limits: { cpu: "1500m", memory: "1.5Gi" }
+          lifecycle:
+            preStop:
+              exec: { command: ["sh", "-c", "sleep 20"] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: order-service
+  namespace: demand-forecast
+spec:
+  selector: { app: order-service }
+  ports:
+    - name: http
+      port: 8082
+      targetPort: 8082
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: order-service-hpa
+  namespace: demand-forecast
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: order-service
+  minReplicas: 3
+  maxReplicas: 12
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 65 }
+    # Scale order-service on Kafka consumer lag (via KEDA or Prometheus Adapter)
+    - type: External
+      external:
+        metric:
+          name: kafka_consumer_group_lag
+          selector:
+            matchLabels:
+              consumer_group: order-service-group
+              topic: order.events
+        target:
+          type: AverageValue
+          averageValue: "500"
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Pods
+          value: 3
+          periodSeconds: 60
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: order-service-pdb
+  namespace: demand-forecast
+spec:
+  minAvailable: 2   # always keep at least 2 pods for Kafka partition assignment
+  selector:
+    matchLabels: { app: order-service }
+
+# ══════════════ FORECAST SERVICE ═════════════════════════════════════════════
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: forecast-service
+  namespace: demand-forecast
+  labels: { app: forecast-service, tier: backend }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: forecast-service }
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  template:
+    metadata:
+      labels: { app: forecast-service, tier: backend }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "8083"
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: forecast-service
+          image: docker.io/YOUR_DOCKERHUB/demand-forecast-forecast-service:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8083
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: kubernetes
+            - name: ML_SERVICE_URL
+              value: http://ml-inference-service.demand-forecast.svc.cluster.local:8000
+            - name: SPRING_DATASOURCE_URL
+              value: jdbc:postgresql://forecast-db-service.demand-forecast.svc.cluster.local:5432/forecastdb
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef: { name: demand-forecast-secrets, key: forecast-db-user }
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: demand-forecast-secrets, key: forecast-db-password }
+            - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              value: kafka-service.demand-forecast.svc.cluster.local:9092
+            - name: JAVA_OPTS
+              value: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError"
+            - name: OTEL_SERVICE_NAME
+              value: forecast-service
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://jaeger.demand-forecast-monitoring.svc.cluster.local:4317
+          startupProbe:
+            httpGet: { path: /actuator/health/liveness, port: 8083 }
+            failureThreshold: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: 8083 }
+            periodSeconds: 15
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: 8083 }
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests: { cpu: "200m", memory: "512Mi" }
+            limits: { cpu: "1", memory: "1Gi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: forecast-service
+  namespace: demand-forecast
+spec:
+  selector: { app: forecast-service }
+  ports:
+    - { name: http, port: 8083, targetPort: 8083 }
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: forecast-service-hpa
+  namespace: demand-forecast
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: forecast-service
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 70 }
+
+# ══════════════ NOTIFICATION SERVICE ═════════════════════════════════════════
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-service
+  namespace: demand-forecast
+  labels: { app: notification-service, tier: backend }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: notification-service }
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  template:
+    metadata:
+      labels: { app: notification-service, tier: backend }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "8084"
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: notification-service
+          image: docker.io/YOUR_DOCKERHUB/demand-forecast-notification-service:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8084
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: kubernetes
+            - name: SPRING_DATASOURCE_URL
+              value: jdbc:postgresql://notification-db-service.demand-forecast.svc.cluster.local:5432/notificationdb
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef: { name: demand-forecast-secrets, key: notification-db-user }
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: demand-forecast-secrets, key: notification-db-password }
+            - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              value: kafka-service.demand-forecast.svc.cluster.local:9092
+            - name: JAVA_OPTS
+              value: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError"
+            - name: OTEL_SERVICE_NAME
+              value: notification-service
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://jaeger.demand-forecast-monitoring.svc.cluster.local:4317
+          startupProbe:
+            httpGet: { path: /actuator/health/liveness, port: 8084 }
+            failureThreshold: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: 8084 }
+            periodSeconds: 15
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: 8084 }
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests: { cpu: "150m", memory: "384Mi" }
+            limits: { cpu: "750m", memory: "768Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notification-service
+  namespace: demand-forecast
+spec:
+  selector: { app: notification-service }
+  ports:
+    - { name: http, port: 8084, targetPort: 8084 }
+
+# ══════════════ ML INFERENCE SERVICE (Python) ═════════════════════════════════
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ml-inference-service
+  namespace: demand-forecast
+  labels: { app: ml-inference-service, tier: ml }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: ml-inference-service }
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  template:
+    metadata:
+      labels: { app: ml-inference-service, tier: ml }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "8000"
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: ml-inference-service
+          image: docker.io/YOUR_DOCKERHUB/demand-forecast-ml-inference-service:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: ENVIRONMENT
+              value: kubernetes
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://jaeger.demand-forecast-monitoring.svc.cluster.local:4317
+            - name: OTEL_SERVICE_NAME
+              value: ml-inference-service
+          startupProbe:
+            httpGet: { path: /health, port: 8000 }
+            failureThreshold: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /health, port: 8000 }
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: { path: /health/ready, port: 8000 }
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests: { cpu: "500m", memory: "1Gi" }  # Prophet + pandas are memory-hungry
+            limits: { cpu: "2", memory: "3Gi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ml-inference-service
+  namespace: demand-forecast
+spec:
+  selector: { app: ml-inference-service }
+  ports:
+    - { name: http, port: 8000, targetPort: 8000 }
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ml-inference-hpa
+  namespace: demand-forecast
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ml-inference-service
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 60 }
+    - type: Resource
+      resource:
+        name: memory
+        target: { type: Utilization, averageUtilization: 75 }
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 600  # ML models are expensive to load

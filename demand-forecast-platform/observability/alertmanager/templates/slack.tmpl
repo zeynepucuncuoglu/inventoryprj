@@ -1,0 +1,24 @@
+{{ define "slack.title" -}}
+  [{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}]
+  {{ .CommonLabels.alertname }} — {{ .CommonLabels.service | default "platform" }}
+  ({{ .CommonLabels.environment | default "unknown" }})
+{{- end }}
+
+{{ define "slack.text" -}}
+{{ range .Alerts }}
+*Alert:* {{ .Labels.alertname }} — `{{ .Labels.severity | toUpper }}`
+*Service:* `{{ .Labels.service | default .Labels.job }}`
+*Summary:* {{ .Annotations.summary }}
+*Description:* {{ .Annotations.description }}
+*Started:* {{ .StartsAt | since }}
+{{ if .Labels.runbook }}*Runbook:* {{ .Labels.runbook }}{{ end }}
+---
+{{ end }}
+{{- end }}
+
+{{ define "pagerduty.description" -}}
+[{{ .CommonLabels.severity | toUpper }}] {{ .CommonLabels.alertname }}
+Service: {{ .CommonLabels.service | default "unknown" }}
+Environment: {{ .CommonLabels.environment | default "unknown" }}
+Summary: {{ (index .Alerts 0).Annotations.summary }}
+{{- end }}

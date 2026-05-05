@@ -1,0 +1,123 @@
+# Alertmanager webhook receiver that triggers kubectl rollout restart
+# when a ServiceDown alert fires in Kubernetes.
+# Deploy this as a simple webhook server in the cluster.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alert-webhook-handler
+  namespace: demand-forecast-monitoring
+  labels:
+    app: alert-webhook-handler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: alert-webhook-handler
+  template:
+    metadata:
+      labels:
+        app: alert-webhook-handler
+    spec:
+      serviceAccountName: alert-webhook-sa
+      containers:
+        - name: webhook-handler
+          image: python:3.12-slim
+          command:
+            - python3
+            - -c
+            - |
+              import json, subprocess, os
+              from http.server import HTTPServer, BaseHTTPRequestHandler
+
+              ALLOWED_ALERTS = {"ServiceDown", "SLOBurnRateCritical", "JVMHeapCritical"}
+              NAMESPACE = os.getenv("NAMESPACE", "demand-forecast")
+
+              class AlertHandler(BaseHTTPRequestHandler):
+                  def log_message(self, fmt, *args):
+                      print(f"[webhook] {fmt % args}", flush=True)
+
+                  def do_POST(self):
+                      if self.path != "/webhook":
+                          self.send_response(404); self.end_headers(); return
+                      length = int(self.headers.get("Content-Length", 0))
+                      body = json.loads(self.rfile.read(length))
+                      self.send_response(200)
+                      self.end_headers()
+                      for alert in body.get("alerts", []):
+                          name = alert["labels"].get("alertname", "")
+                          service = alert["labels"].get("job", alert["labels"].get("service", ""))
+                          status = alert.get("status", "")
+                          print(f"[webhook] alert={name} service={service} status={status}", flush=True)
+                          if status == "firing" and name in ALLOWED_ALERTS and service:
+                              # Map Prometheus job name to K8s deployment name
+                              deployment = service.replace("_", "-")
+                              print(f"[webhook] Triggering rollout restart for {deployment}", flush=True)
+                              try:
+                                  subprocess.run(
+                                      ["kubectl", "rollout", "restart",
+                                       f"deployment/{deployment}", "-n", NAMESPACE],
+                                      timeout=30, check=True, capture_output=True
+                                  )
+                                  print(f"[webhook] Restarted {deployment}", flush=True)
+                              except subprocess.CalledProcessError as e:
+                                  print(f"[webhook] ERROR restarting {deployment}: {e.stderr.decode()}", flush=True)
+                              except Exception as e:
+                                  print(f"[webhook] UNEXPECTED ERROR: {e}", flush=True)
+
+              print("[webhook] Starting on :9095", flush=True)
+              HTTPServer(("0.0.0.0", 9095), AlertHandler).serve_forever()
+          ports:
+            - containerPort: 9095
+          env:
+            - name: NAMESPACE
+              value: demand-forecast
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits: { cpu: "200m", memory: "128Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alert-webhook-handler
+  namespace: demand-forecast-monitoring
+spec:
+  selector:
+    app: alert-webhook-handler
+  ports:
+    - port: 9095
+      targetPort: 9095
+---
+# RBAC: allow the webhook to restart deployments
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: alert-webhook-sa
+  namespace: demand-forecast-monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: deployment-restarter
+  namespace: demand-forecast
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "patch", "update"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/rollback"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: alert-webhook-restarter
+  namespace: demand-forecast
+subjects:
+  - kind: ServiceAccount
+    name: alert-webhook-sa
+    namespace: demand-forecast-monitoring
+roleRef:
+  kind: Role
+  name: deployment-restarter
+  apiGroup: rbac.authorization.k8s.io

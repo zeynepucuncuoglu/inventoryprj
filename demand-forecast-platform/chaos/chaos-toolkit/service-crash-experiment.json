@@ -1,0 +1,126 @@
+{
+  "version": "1.0.0",
+  "title": "Service Crash — product-service SIGKILL",
+  "description": "Kills product-service container and validates: (1) circuit breaker on api-gateway opens within 10s, (2) Prometheus fires ServiceDown alert, (3) Docker restarts container via restart:always policy within 60s.",
+  "tags": ["crash", "circuit-breaker", "product-service", "resilience4j", "sre"],
+  "configuration": {
+    "prometheus_url": {
+      "type": "env",
+      "key": "PROMETHEUS_URL",
+      "default": "http://localhost:9090"
+    },
+    "gateway_url": {
+      "type": "env",
+      "key": "GATEWAY_URL",
+      "default": "http://localhost:8080"
+    }
+  },
+  "steady-state-hypothesis": {
+    "title": "product-service is up and API gateway routes to it",
+    "probes": [
+      {
+        "name": "product-service-up",
+        "type": "probe",
+        "tolerance": 200,
+        "provider": {
+          "type": "http",
+          "url": "http://localhost:8081/actuator/health",
+          "timeout": 5
+        }
+      },
+      {
+        "name": "gateway-products-reachable",
+        "type": "probe",
+        "tolerance": 200,
+        "provider": {
+          "type": "http",
+          "url": "${gateway_url}/api/products",
+          "headers": {"Authorization": "Bearer ${JWT_TEST_TOKEN}"},
+          "timeout": 5
+        }
+      }
+    ]
+  },
+  "method": [
+    {
+      "name": "kill-product-service",
+      "type": "action",
+      "provider": {
+        "type": "process",
+        "path": "bash",
+        "arguments": [
+          "-c",
+          "CONTAINER=$(docker ps -qf name=product-service); docker kill --signal=SIGKILL $CONTAINER && echo \"[CHAOS] SIGKILL sent to product-service ($CONTAINER)\""
+        ]
+      }
+    },
+    {
+      "name": "wait-for-circuit-breaker",
+      "type": "action",
+      "provider": {
+        "type": "process",
+        "path": "sleep",
+        "arguments": ["10"]
+      }
+    },
+    {
+      "name": "verify-circuit-breaker-open",
+      "type": "probe",
+      "tolerance": true,
+      "provider": {
+        "type": "process",
+        "path": "bash",
+        "arguments": [
+          "-c",
+          "STATE=$(curl -sf 'http://localhost:8080/actuator/circuitbreakers' | python3 -c \"import sys,json; data=json.load(sys.stdin); svc=[cb for cb in data.get('circuitBreakers',[]) if 'product' in cb.get('name','').lower()]; print(svc[0]['state'] if svc else 'UNKNOWN')\"); echo \"[CHAOS] Circuit breaker state: $STATE\"; [ \"$STATE\" = 'OPEN' ] || [ \"$STATE\" = 'HALF_OPEN' ]"
+        ]
+      }
+    },
+    {
+      "name": "verify-gateway-returns-fallback",
+      "type": "probe",
+      "tolerance": 503,
+      "provider": {
+        "type": "http",
+        "url": "${gateway_url}/api/products",
+        "timeout": 5
+      },
+      "pauses": {
+        "before": 2
+      }
+    },
+    {
+      "name": "wait-for-auto-restart",
+      "type": "action",
+      "provider": {
+        "type": "process",
+        "path": "sleep",
+        "arguments": ["60"]
+      }
+    },
+    {
+      "name": "verify-service-recovered",
+      "type": "probe",
+      "tolerance": 200,
+      "provider": {
+        "type": "http",
+        "url": "http://localhost:8081/actuator/health",
+        "timeout": 10
+      }
+    }
+  ],
+  "rollbacks": [
+    {
+      "name": "force-start-product-service",
+      "type": "action",
+      "provider": {
+        "type": "process",
+        "path": "bash",
+        "arguments": [
+          "-c",
+          "docker compose -f demand-forecast-platform/docker-compose.yml start product-service && echo '[CHAOS ROLLBACK] product-service force-started'"
+        ]
+      }
+    }
+  ]
+}

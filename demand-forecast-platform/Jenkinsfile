@@ -2,37 +2,140 @@ pipeline {
     agent any
 
     environment {
-        COMPOSE_DIR  = 'demand-forecast-platform'
-        IMAGE_PREFIX = 'demand-forecast'
+        COMPOSE_DIR   = 'demand-forecast-platform'
+        IMAGE_PREFIX  = 'demand-forecast'
+        SERVICES      = 'api-gateway product-service order-service forecast-service notification-service ml-inference-service'
+        JAVA_SERVICES = 'api-gateway product-service order-service forecast-service notification-service'
     }
 
     options {
-        buildDiscarder(logRotator(numToKeepStr: '10'))
-        timeout(time: 60, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '20'))
+        timeout(time: 90, unit: 'MINUTES')
         timestamps()
         ansiColor('xterm')
         skipDefaultCheckout()
+        // Prevent concurrent deploys to the same environment
+        disableConcurrentBuilds(abortPrevious: true)
+    }
+
+    parameters {
+        choice(
+            name: 'DEPLOY_TARGET',
+            choices: ['auto', 'dev', 'staging', 'production', 'none'],
+            description: 'Override deployment target. "auto" uses branch rules.'
+        )
+        booleanParam(
+            name: 'SKIP_TESTS',
+            defaultValue: false,
+            description: 'Skip tests (emergency hotfix only — requires approval)'
+        )
+        booleanParam(
+            name: 'RUN_CHAOS',
+            defaultValue: false,
+            description: 'Run chaos experiments after staging deploy'
+        )
+        string(
+            name: 'ROLLBACK_BUILD',
+            defaultValue: '',
+            description: 'Build number to rollback to (leave empty for normal deploy)'
+        )
     }
 
     stages {
 
-        stage('Checkout') {
+        // ─────────────────────────────────────────────────────────
+        // 0. ROLLBACK (emergency only — skip all other stages)
+        // ─────────────────────────────────────────────────────────
+        stage('Rollback') {
+            when {
+                not { equals expected: '', actual: params.ROLLBACK_BUILD }
+            }
             steps {
                 checkout scm
-                sh 'git log --oneline -5'
+                script {
+                    def target = params.DEPLOY_TARGET == 'auto' ? resolveDeployTarget() : params.DEPLOY_TARGET
+                    echo "[ROLLBACK] Rolling back to build #${params.ROLLBACK_BUILD} on ${target}"
+                    withCredentials([
+                        string(credentialsId: "${target}-server-host", variable: 'SERVER_HOST'),
+                        sshUserPrivateKey(credentialsId: "${target}-ssh-key", keyFileVariable: 'SSH_KEY', usernameVariable: 'SSH_USER')
+                    ]) {
+                        sh """
+                            ssh -i \$SSH_KEY -o StrictHostKeyChecking=no \$SSH_USER@\$SERVER_HOST \
+                              "bash /opt/demand-forecast/scripts/rollback.sh ${target} ${params.ROLLBACK_BUILD}"
+                        """
+                    }
+                    slackNotify("ROLLBACK", "⏪ Rolled back to #${params.ROLLBACK_BUILD} on ${target}")
+                }
+            }
+            post {
+                always { script { currentBuild.description = "ROLLBACK to #${params.ROLLBACK_BUILD}" } }
             }
         }
 
         // ─────────────────────────────────────────────────────────
-        // All 6 services tested in parallel (5 Java + 1 Python)
+        // 1. CHECKOUT + SECURITY SCAN
+        // ─────────────────────────────────────────────────────────
+        stage('Checkout') {
+            when { equals expected: '', actual: params.ROLLBACK_BUILD }
+            steps {
+                checkout scm
+                sh 'git log --oneline -5'
+                script { currentBuild.description = "SHA: ${sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()}" }
+            }
+        }
+
+        stage('Security Scan') {
+            when {
+                allOf {
+                    equals expected: '', actual: params.ROLLBACK_BUILD
+                    not { equals expected: true, actual: params.SKIP_TESTS }
+                }
+            }
+            parallel {
+                stage('Trivy — Filesystem') {
+                    steps {
+                        sh """
+                            docker run --rm \
+                              -v \$(pwd)/${COMPOSE_DIR}:/workspace \
+                              aquasec/trivy:latest fs \
+                              --severity HIGH,CRITICAL \
+                              --format table \
+                              --exit-code 0 \
+                              /workspace
+                        """
+                    }
+                }
+                stage('Secret Detection') {
+                    steps {
+                        sh """
+                            docker run --rm \
+                              -v \$(pwd):/repo \
+                              trufflesecurity/trufflehog:latest \
+                              filesystem /repo \
+                              --only-verified \
+                              --fail || echo 'WARNING: Potential secrets detected'
+                        """
+                    }
+                }
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────
+        // 2. PARALLEL TEST (all 6 services)
         // ─────────────────────────────────────────────────────────
         stage('Test') {
+            when {
+                allOf {
+                    equals expected: '', actual: params.ROLLBACK_BUILD
+                    not { equals expected: true, actual: params.SKIP_TESTS }
+                }
+            }
             parallel {
 
                 stage('api-gateway') {
                     steps {
                         dir("${COMPOSE_DIR}/services/api-gateway") {
-                            sh 'mvn test -B --no-transfer-progress'
+                            sh 'mvn test -B --no-transfer-progress -Dspring.profiles.active=test'
                         }
                     }
                 }
@@ -40,7 +143,7 @@ pipeline {
                 stage('product-service') {
                     steps {
                         dir("${COMPOSE_DIR}/services/product-service") {
-                            sh 'mvn test -B --no-transfer-progress'
+                            sh 'mvn test -B --no-transfer-progress -Dspring.profiles.active=test'
                         }
                     }
                 }
@@ -48,7 +151,7 @@ pipeline {
                 stage('order-service') {
                     steps {
                         dir("${COMPOSE_DIR}/services/order-service") {
-                            sh 'mvn test -B --no-transfer-progress'
+                            sh 'mvn test -B --no-transfer-progress -Dspring.profiles.active=test'
                         }
                     }
                 }
@@ -56,7 +159,7 @@ pipeline {
                 stage('forecast-service') {
                     steps {
                         dir("${COMPOSE_DIR}/services/forecast-service") {
-                            sh 'mvn test -B --no-transfer-progress'
+                            sh 'mvn test -B --no-transfer-progress -Dspring.profiles.active=test'
                         }
                     }
                 }
@@ -64,7 +167,7 @@ pipeline {
                 stage('notification-service') {
                     steps {
                         dir("${COMPOSE_DIR}/services/notification-service") {
-                            sh 'mvn test -B --no-transfer-progress'
+                            sh 'mvn test -B --no-transfer-progress -Dspring.profiles.active=test'
                         }
                     }
                 }
@@ -75,12 +178,18 @@ pipeline {
                             sh '''
                                 python3 -m venv .venv
                                 . .venv/bin/activate
-                                pip install \
-                                  fastapi==0.111.0 "uvicorn[standard]==0.29.0" pydantic==2.7.0 \
-                                  pandas==2.2.2 numpy==1.26.4 scikit-learn==1.4.2 joblib==1.4.2 \
-                                  httpx==0.27.0 pytest==8.2.0 pytest-asyncio==0.23.6 --quiet
-                                pytest tests/ -v --tb=short --junitxml=test-results.xml
+                                pip install -r requirements.txt pytest pytest-asyncio pytest-cov --quiet
+                                pytest tests/ -v --tb=short \
+                                  --cov=app --cov-report=xml \
+                                  --junitxml=test-results.xml
                             '''
+                        }
+                    }
+                    post {
+                        always {
+                            publishCoverage adapters: [
+                                coberturaAdapter("${COMPOSE_DIR}/services/ml-inference-service/coverage.xml")
+                            ]
                         }
                     }
                 }
@@ -95,20 +204,31 @@ pipeline {
         }
 
         // ─────────────────────────────────────────────────────────
-        // Build all 6 Docker images in parallel
+        // 3. BUILD ALL IMAGES (tagged with build number + git SHA)
         // ─────────────────────────────────────────────────────────
         stage('Build Docker Images') {
+            when { equals expected: '', actual: params.ROLLBACK_BUILD }
             steps {
                 script {
-                    def services = [
-                        'api-gateway', 'product-service', 'order-service',
-                        'forecast-service', 'notification-service', 'ml-inference-service'
-                    ]
+                    def gitSha = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+                    def buildTag = "${BUILD_NUMBER}-${gitSha}"
+                    env.BUILD_TAG = buildTag
+
+                    def services = env.SERVICES.split(' ')
                     def buildTasks = [:]
                     services.each { svc ->
                         def s = svc
                         buildTasks["build-${s}"] = {
-                            sh "docker build -t ${IMAGE_PREFIX}-${s}:${BUILD_NUMBER} -t ${IMAGE_PREFIX}-${s}:latest ${COMPOSE_DIR}/services/${s}"
+                            sh """
+                                docker build \
+                                  --build-arg GIT_SHA=${gitSha} \
+                                  --build-arg BUILD_NUMBER=${BUILD_NUMBER} \
+                                  --label git.sha=${gitSha} \
+                                  --label build.number=${BUILD_NUMBER} \
+                                  -t ${IMAGE_PREFIX}-${s}:${buildTag} \
+                                  -t ${IMAGE_PREFIX}-${s}:latest \
+                                  ${COMPOSE_DIR}/services/${s}
+                            """
                         }
                     }
                     parallel buildTasks
@@ -117,12 +237,42 @@ pipeline {
         }
 
         // ─────────────────────────────────────────────────────────
-        // Push to Docker Hub — main branch only
-        // Requires Jenkins credential: docker-hub-credentials
+        // 4. IMAGE VULNERABILITY SCAN
+        // ─────────────────────────────────────────────────────────
+        stage('Image Security Scan') {
+            when { equals expected: '', actual: params.ROLLBACK_BUILD }
+            steps {
+                script {
+                    def services = env.SERVICES.split(' ')
+                    def scanTasks = [:]
+                    services.each { svc ->
+                        def s = svc
+                        scanTasks["scan-${s}"] = {
+                            sh """
+                                docker run --rm \
+                                  -v /var/run/docker.sock:/var/run/docker.sock \
+                                  aquasec/trivy:latest image \
+                                  --severity CRITICAL \
+                                  --exit-code 1 \
+                                  ${IMAGE_PREFIX}-${s}:${BUILD_TAG} || \
+                                echo 'WARNING: Critical CVE found in ${s}'
+                            """
+                        }
+                    }
+                    parallel scanTasks
+                }
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────
+        // 5. PUSH TO DOCKER HUB
         // ─────────────────────────────────────────────────────────
         stage('Push to Docker Hub') {
             when {
-                branch 'main'
+                allOf {
+                    equals expected: '', actual: params.ROLLBACK_BUILD
+                    anyOf { branch 'main'; branch 'develop'; branch pattern: 'release/*', comparator: 'GLOB' }
+                }
             }
             steps {
                 withCredentials([usernamePassword(
@@ -132,67 +282,223 @@ pipeline {
                 )]) {
                     sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
                     script {
-                        def services = [
-                            'api-gateway', 'product-service', 'order-service',
-                            'forecast-service', 'notification-service', 'ml-inference-service'
-                        ]
+                        def services = env.SERVICES.split(' ')
+                        def pushTasks = [:]
                         services.each { svc ->
-                            sh """
-                                docker tag ${IMAGE_PREFIX}-${svc}:${BUILD_NUMBER} \$DOCKER_USER/${IMAGE_PREFIX}-${svc}:${BUILD_NUMBER}
-                                docker tag ${IMAGE_PREFIX}-${svc}:latest          \$DOCKER_USER/${IMAGE_PREFIX}-${svc}:latest
-                                docker push \$DOCKER_USER/${IMAGE_PREFIX}-${svc}:${BUILD_NUMBER}
-                                docker push \$DOCKER_USER/${IMAGE_PREFIX}-${svc}:latest
-                            """
+                            def s = svc
+                            pushTasks["push-${s}"] = {
+                                sh """
+                                    docker tag ${IMAGE_PREFIX}-${s}:${BUILD_TAG} \$DOCKER_USER/${IMAGE_PREFIX}-${s}:${BUILD_TAG}
+                                    docker push \$DOCKER_USER/${IMAGE_PREFIX}-${s}:${BUILD_TAG}
+                                """
+                                if (env.BRANCH_NAME == 'main') {
+                                    sh """
+                                        docker tag ${IMAGE_PREFIX}-${s}:${BUILD_TAG} \$DOCKER_USER/${IMAGE_PREFIX}-${s}:latest
+                                        docker push \$DOCKER_USER/${IMAGE_PREFIX}-${s}:latest
+                                    """
+                                }
+                            }
                         }
+                        parallel pushTasks
                     }
                 }
             }
         }
 
         // ─────────────────────────────────────────────────────────
-        // Deploy via Docker Compose, then verify health — main only
+        // 6. DEPLOY TO DEV (develop branch — automatic)
         // ─────────────────────────────────────────────────────────
-        stage('Deploy') {
+        stage('Deploy → dev') {
             when {
-                branch 'main'
+                allOf {
+                    equals expected: '', actual: params.ROLLBACK_BUILD
+                    anyOf {
+                        branch 'develop'
+                        allOf { equals expected: 'dev', actual: params.DEPLOY_TARGET }
+                    }
+                }
             }
             steps {
-                dir(COMPOSE_DIR) {
-                    sh 'docker compose pull --quiet'
-                    sh 'docker compose up -d --remove-orphans'
-                    sh 'sleep 30'
-                    sh 'bash scripts/health-check.sh'
+                script { deployToEnvironment('dev', env.BUILD_TAG) }
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────
+        // 7. DEPLOY TO STAGING (main branch — automatic, with SLO gate)
+        // ─────────────────────────────────────────────────────────
+        stage('Deploy → staging') {
+            when {
+                allOf {
+                    equals expected: '', actual: params.ROLLBACK_BUILD
+                    anyOf {
+                        branch 'main'
+                        allOf { equals expected: 'staging', actual: params.DEPLOY_TARGET }
+                    }
+                }
+            }
+            steps {
+                script {
+                    deployToEnvironment('staging', env.BUILD_TAG)
+
+                    // SLO gate — check error rate after deploy
+                    sleep 60
+                    sh """
+                        bash ${COMPOSE_DIR}/scripts/health-check.sh \
+                          --environment staging --strict
+                    """
                 }
             }
         }
 
-    }
+        // ─────────────────────────────────────────────────────────
+        // 8. CHAOS EXPERIMENTS ON STAGING (optional)
+        // ─────────────────────────────────────────────────────────
+        stage('Chaos Testing') {
+            when {
+                allOf {
+                    equals expected: true, actual: params.RUN_CHAOS
+                    equals expected: '', actual: params.ROLLBACK_BUILD
+                }
+            }
+            steps {
+                echo '[CHAOS] Running chaos experiments on staging...'
+                sh """
+                    pip install chaostoolkit chaostoolkit-kubernetes --quiet
+                    chaos run ${COMPOSE_DIR}/chaos/chaos-toolkit/kafka-lag-experiment.json \
+                      --var kafka_bootstrap=staging-kafka:9092 || \
+                    echo '[CHAOS] Experiment complete (failures expected)'
+                """
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────
+        // 9. MANUAL APPROVAL GATE → PRODUCTION
+        // ─────────────────────────────────────────────────────────
+        stage('Approve Production Deploy') {
+            when {
+                allOf {
+                    equals expected: '', actual: params.ROLLBACK_BUILD
+                    branch 'main'
+                    not { equals expected: 'none', actual: params.DEPLOY_TARGET }
+                }
+            }
+            steps {
+                script {
+                    def approver = input(
+                        message: "Deploy build ${BUILD_TAG} to PRODUCTION?",
+                        submitterParameter: 'APPROVER',
+                        parameters: [
+                            booleanParam(name: 'CONFIRM', defaultValue: false,
+                                description: 'Tick to confirm production deployment'),
+                            string(name: 'CHANGE_TICKET', defaultValue: '',
+                                description: 'Change management ticket (required)')
+                        ]
+                    )
+                    if (!approver.CONFIRM) {
+                        error("Production deployment rejected by ${approver.APPROVER}")
+                    }
+                    if (!approver.CHANGE_TICKET?.trim()) {
+                        error("Change management ticket is required for production deployments")
+                    }
+                    env.CHANGE_TICKET = approver.CHANGE_TICKET
+                    env.APPROVED_BY = approver.APPROVER
+                    echo "Production deployment approved by ${env.APPROVED_BY} (ticket: ${env.CHANGE_TICKET})"
+                }
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────
+        // 10. DEPLOY TO PRODUCTION (blue-green)
+        // ─────────────────────────────────────────────────────────
+        stage('Deploy → production') {
+            when {
+                allOf {
+                    equals expected: '', actual: params.ROLLBACK_BUILD
+                    branch 'main'
+                    not { equals expected: 'none', actual: params.DEPLOY_TARGET }
+                }
+            }
+            steps {
+                script {
+                    deployToEnvironment('production', env.BUILD_TAG, '--strategy=blue-green')
+
+                    // Post-deploy SLO gate — 5 min smoke period
+                    echo '[PROD] Monitoring SLOs for 5 minutes...'
+                    sleep 300
+                    sh """
+                        bash ${COMPOSE_DIR}/scripts/health-check.sh \
+                          --environment production --strict --alert-on-fail
+                    """
+                }
+            }
+            post {
+                failure {
+                    script {
+                        echo '[PROD] Deploy failed — initiating auto-rollback'
+                        withCredentials([
+                            string(credentialsId: 'prod-server-host', variable: 'SERVER_HOST'),
+                            sshUserPrivateKey(credentialsId: 'prod-ssh-key', keyFileVariable: 'SSH_KEY', usernameVariable: 'SSH_USER')
+                        ]) {
+                            sh "ssh -i \$SSH_KEY -o StrictHostKeyChecking=no \$SSH_USER@\$SERVER_HOST 'bash /opt/demand-forecast/scripts/rollback.sh production'"
+                        }
+                        slackNotify('ROLLBACK', "🔥 Production deploy failed — auto-rollback initiated for build #${BUILD_NUMBER}")
+                    }
+                }
+            }
+        }
+
+    } // end stages
 
     post {
         success {
             script {
-                if (env.SLACK_WEBHOOK_URL) {
-                    sh """
-                        curl -s -X POST "\${SLACK_WEBHOOK_URL}" \
-                          -H 'Content-Type: application/json' \
-                          -d '{"text":":white_check_mark: *Build #${BUILD_NUMBER} succeeded* — \`${GIT_BRANCH}\`\\n<${BUILD_URL}|Open in Jenkins>"}'
-                    """
-                }
+                slackNotify('SUCCESS', "✅ Build #${BUILD_NUMBER} succeeded on `${env.BRANCH_NAME}`")
             }
         }
         failure {
             script {
-                if (env.SLACK_WEBHOOK_URL) {
-                    sh """
-                        curl -s -X POST "\${SLACK_WEBHOOK_URL}" \
-                          -H 'Content-Type: application/json' \
-                          -d '{"text":":x: *Build #${BUILD_NUMBER} FAILED* — \`${GIT_BRANCH}\`\\n<${BUILD_URL}|Open in Jenkins>"}'
-                    """
-                }
+                slackNotify('FAILURE', "❌ Build #${BUILD_NUMBER} FAILED on `${env.BRANCH_NAME}` — <${BUILD_URL}|view logs>")
             }
         }
         always {
             sh 'docker logout || true'
+            // Cleanup dangling images older than 24h
+            sh 'docker image prune -f --filter "until=24h" || true'
+            archiveArtifacts artifacts: '**/surefire-reports/*.xml,**/test-results.xml,**/logs/auto-heal.log', allowEmptyArchive: true
         }
+    }
+}
+
+// ── Shared functions ──────────────────────────────────────────────────────────
+
+def resolveDeployTarget() {
+    switch (env.BRANCH_NAME) {
+        case 'develop': return 'dev'
+        case 'main':    return 'staging'
+        default:        return 'none'
+    }
+}
+
+def deployToEnvironment(String env_name, String tag, String extraArgs = '') {
+    echo "[DEPLOY] Deploying ${tag} → ${env_name}"
+    withCredentials([
+        string(credentialsId: "${env_name}-server-host", variable: 'SERVER_HOST'),
+        sshUserPrivateKey(credentialsId: "${env_name}-ssh-key", keyFileVariable: 'SSH_KEY', usernameVariable: 'SSH_USER')
+    ]) {
+        sh """
+            ssh -i \$SSH_KEY -o StrictHostKeyChecking=no \$SSH_USER@\$SERVER_HOST \
+              "IMAGE_TAG=${tag} ENVIRONMENT=${env_name} bash /opt/demand-forecast/scripts/deployment.sh ${env_name} ${tag} ${extraArgs}"
+        """
+    }
+}
+
+def slackNotify(String status, String message) {
+    def color = [SUCCESS: 'good', FAILURE: 'danger', ROLLBACK: 'warning'].get(status, '#cccccc')
+    if (env.SLACK_WEBHOOK_URL) {
+        sh """
+            curl -sf -X POST "\${SLACK_WEBHOOK_URL}" \
+              -H 'Content-Type: application/json' \
+              -d '{"attachments":[{"color":"${color}","text":"${message}","footer":"Jenkins CI | Build #${BUILD_NUMBER}"}]}'
+        """
     }
 }

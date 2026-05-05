@@ -1,0 +1,60 @@
+filebeat.inputs:
+  - type: container
+    paths:
+      - /var/lib/docker/containers/*/*.log
+    stream: all
+    processors:
+      - add_docker_metadata:
+          host: "unix:///var/run/docker.sock"
+      - decode_json_fields:
+          fields: ["message"]
+          process_array: false
+          max_depth: 3
+          target: ""
+          overwrite_keys: true
+          add_error_key: true
+
+# Only collect logs from our platform containers
+filebeat.autodiscover:
+  providers:
+    - type: docker
+      hints.enabled: true
+      hints.default_config:
+        type: container
+        paths:
+          - /var/lib/docker/containers/${data.container.id}/*.log
+      templates:
+        - condition:
+            contains:
+              docker.container.labels.com.docker.compose.project: demand-forecast-platform
+          config:
+            - type: container
+              paths:
+                - /var/lib/docker/containers/${data.container.id}/*.log
+              multiline.type: pattern
+              # Merge stack traces (lines not starting with timestamp or log level)
+              multiline.pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}|^[A-Z]+\s*:'
+              multiline.negate: true
+              multiline.match: after
+              multiline.max_lines: 50
+              multiline.timeout: 5s
+
+processors:
+  - add_host_metadata:
+      when.not.contains.tags: forwarded
+  - add_cloud_metadata: ~
+  - drop_fields:
+      fields: ["agent.ephemeral_id", "ecs.version"]
+      ignore_missing: true
+
+output.logstash:
+  hosts: ["logstash:5044"]
+  loadbalance: true
+  worker: 2
+  compression_level: 3
+  bulk_max_size: 2048
+
+logging.level: warning
+logging.to_files: false
+
+monitoring.enabled: false

@@ -1,0 +1,93 @@
+{
+  "version": "1.0.0",
+  "title": "Network Latency Spike — ml-inference-service",
+  "description": "Injects 800ms additional latency on ml-inference-service container network interface using tc netem. Validates that forecast-service circuit breaker opens, fallback activates, and P99 latency alert fires on Prometheus.",
+  "tags": ["latency", "tc-netem", "ml-service", "circuit-breaker", "sre"],
+  "configuration": {
+    "target_service": {"type": "env", "key": "CHAOS_TARGET_SERVICE", "default": "ml-inference-service"},
+    "latency_ms": {"type": "env", "key": "CHAOS_LATENCY_MS", "default": "800"},
+    "jitter_ms": {"type": "env", "key": "CHAOS_JITTER_MS", "default": "100"},
+    "prometheus_url": {"type": "env", "key": "PROMETHEUS_URL", "default": "http://localhost:9090"}
+  },
+  "steady-state-hypothesis": {
+    "title": "ML service responds within 200ms p99",
+    "probes": [
+      {
+        "name": "ml-service-p99-latency-ok",
+        "type": "probe",
+        "tolerance": true,
+        "provider": {
+          "type": "process",
+          "path": "bash",
+          "arguments": [
+            "-c",
+            "P99=$(curl -sf '${prometheus_url}/api/v1/query?query=histogram_quantile(0.99,rate(http_server_requests_seconds_bucket{job=\"ml-inference-service\"}[5m]))' | python3 -c \"import sys,json; d=json.load(sys.stdin); r=d['data']['result']; print(float(r[0]['value'][1]) if r else 0)\"); echo \"ML P99: ${P99}s\"; [ $(echo \"$P99 < 0.5\" | bc -l) -eq 1 ]"
+          ]
+        }
+      }
+    ]
+  },
+  "method": [
+    {
+      "name": "inject-network-latency",
+      "type": "action",
+      "provider": {
+        "type": "process",
+        "path": "bash",
+        "arguments": [
+          "-c",
+          "CONTAINER_PID=$(docker inspect --format='{{.State.Pid}}' $(docker ps -qf name=${target_service})); nsenter -t $CONTAINER_PID -n tc qdisc add dev eth0 root netem delay ${latency_ms}ms ${jitter_ms}ms distribution normal && echo \"[CHAOS] Injected ${latency_ms}ms ± ${jitter_ms}ms latency on ${target_service} eth0\""
+        ]
+      }
+    },
+    {
+      "name": "generate-forecast-load",
+      "type": "action",
+      "provider": {
+        "type": "process",
+        "path": "bash",
+        "arguments": [
+          "-c",
+          "for i in $(seq 1 50); do curl -sf -X POST http://localhost:8083/api/forecasts -H 'Content-Type: application/json' -d '{\"productId\":\"chaos-'$i'\",\"horizon\":7}' & done; wait; echo '[CHAOS] 50 concurrent forecast requests fired'"
+        ]
+      },
+      "pauses": {"before": 2}
+    },
+    {
+      "name": "wait-for-circuit-break",
+      "type": "action",
+      "provider": {
+        "type": "process",
+        "path": "sleep",
+        "arguments": ["30"]
+      }
+    },
+    {
+      "name": "verify-high-latency-alert",
+      "type": "probe",
+      "tolerance": true,
+      "provider": {
+        "type": "process",
+        "path": "bash",
+        "arguments": [
+          "-c",
+          "ALERT=$(curl -sf '${prometheus_url}/api/v1/alerts' | python3 -c \"import sys,json; data=json.load(sys.stdin); alerts=[a for a in data['data']['alerts'] if 'Latency' in a['labels'].get('alertname','')]; print(len(alerts))\"); echo \"[CHAOS] Active latency alerts: $ALERT\"; [ \"$ALERT\" -gt 0 ]"
+        ]
+      }
+    }
+  ],
+  "rollbacks": [
+    {
+      "name": "remove-latency-injection",
+      "type": "action",
+      "provider": {
+        "type": "process",
+        "path": "bash",
+        "arguments": [
+          "-c",
+          "CONTAINER_PID=$(docker inspect --format='{{.State.Pid}}' $(docker ps -qf name=${target_service})); nsenter -t $CONTAINER_PID -n tc qdisc del dev eth0 root 2>/dev/null || true; echo '[CHAOS ROLLBACK] Latency injection removed'"
+        ]
+      }
+    }
+  ]
+}

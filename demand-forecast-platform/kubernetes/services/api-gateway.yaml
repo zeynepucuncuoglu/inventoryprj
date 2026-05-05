@@ -1,0 +1,198 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: demand-forecast
+  labels:
+    app: api-gateway
+    version: "1.0"
+    tier: gateway
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: api-gateway
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1         # allow one extra pod during deploy
+      maxUnavailable: 0   # zero-downtime: never remove a pod before new one is ready
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+        version: "1.0"
+        tier: gateway
+      annotations:
+        # Prometheus scrape via pod annotations (works with Prometheus Operator)
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "8080"
+    spec:
+      terminationGracePeriodSeconds: 60
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels: { app: api-gateway }
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: api-gateway
+          image: docker.io/YOUR_DOCKERHUB/demand-forecast-api-gateway:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: "kubernetes"
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: demand-forecast-secrets
+                  key: jwt-secret
+            - name: REDIS_HOST
+              value: redis-service.demand-forecast.svc.cluster.local
+            - name: REDIS_PORT
+              value: "6379"
+            - name: JAVA_OPTS
+              value: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://jaeger.demand-forecast-monitoring.svc.cluster.local:4317"
+            - name: OTEL_SERVICE_NAME
+              value: "api-gateway"
+
+          # ── Probes ─────────────────────────────────────────────────────────
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            failureThreshold: 30      # 30 × 10s = 5 min for slow JVM startup
+            periodSeconds: 10
+            timeoutSeconds: 3
+
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            initialDelaySeconds: 0    # startupProbe handles initial delay
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3       # 3 failures → restart
+            successThreshold: 1
+
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8080
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3       # 3 failures → remove from Service endpoints
+            successThreshold: 1
+
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+
+          lifecycle:
+            preStop:
+              exec:
+                # Give load balancer time to drain connections before SIGTERM
+                command: ["sh", "-c", "sleep 15"]
+
+          volumeMounts:
+            - name: app-config
+              mountPath: /config
+              readOnly: true
+
+      volumes:
+        - name: app-config
+          configMap:
+            name: api-gateway-config
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway-service
+  namespace: demand-forecast
+  labels:
+    app: api-gateway
+spec:
+  type: LoadBalancer
+  selector:
+    app: api-gateway
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+      protocol: TCP
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api-gateway-hpa
+  namespace: demand-forecast
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api-gateway
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+    # Scale on HTTP request rate (requires Prometheus Adapter)
+    - type: Pods
+      pods:
+        metric:
+          name: http_requests_per_second
+        target:
+          type: AverageValue
+          averageValue: "500"
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300  # wait 5 min before scaling down
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 60
+
+---
+# PodDisruptionBudget: guarantee ≥1 pod always available during node drain
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: api-gateway-pdb
+  namespace: demand-forecast
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: api-gateway

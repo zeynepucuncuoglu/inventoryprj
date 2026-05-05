@@ -1,0 +1,341 @@
+groups:
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # SLO: Availability — 99.9% uptime (≤43.8 min downtime/month)
+  # Burn-rate alerting: fast burn (short window) + slow burn (long window)
+  # Pattern: Google SRE Workbook Chapter 5 — multi-window, multi-burn-rate
+  # ══════════════════════════════════════════════════════════════════════════
+  - name: slo_availability
+    interval: 1m
+    rules:
+      # Error ratio recording rules — used by burn-rate alerts below
+      - record: job:http_error_ratio:rate5m
+        expr: |
+          sum by (job) (rate(http_server_requests_seconds_count{status=~"5.."}[5m]))
+          /
+          sum by (job) (rate(http_server_requests_seconds_count[5m]))
+
+      - record: job:http_error_ratio:rate30m
+        expr: |
+          sum by (job) (rate(http_server_requests_seconds_count{status=~"5.."}[30m]))
+          /
+          sum by (job) (rate(http_server_requests_seconds_count[30m]))
+
+      - record: job:http_error_ratio:rate1h
+        expr: |
+          sum by (job) (rate(http_server_requests_seconds_count{status=~"5.."}[1h]))
+          /
+          sum by (job) (rate(http_server_requests_seconds_count[1h]))
+
+      - record: job:http_error_ratio:rate6h
+        expr: |
+          sum by (job) (rate(http_server_requests_seconds_count{status=~"5.."}[6h]))
+          /
+          sum by (job) (rate(http_server_requests_seconds_count[6h]))
+
+      # P1 — Fast burn: consuming 2% error budget in 1 hour (14.4× rate)
+      # Fires within minutes of a major outage. Page immediately.
+      - alert: SLOBurnRateCritical
+        expr: |
+          (job:http_error_ratio:rate5m > (14.4 * 0.001))
+          and
+          (job:http_error_ratio:rate1h > (14.4 * 0.001))
+        for: 2m
+        labels:
+          severity: critical
+          slo: availability
+          runbook: "https://wiki.internal/runbooks/SLOBurnRateCritical"
+        annotations:
+          summary: "P1: SLO burn rate critical on {{ $labels.job }}"
+          description: |
+            {{ $labels.job }} is consuming error budget at {{ $value | humanizePercentage }} error rate
+            (14.4× budget burn rate). At this pace, monthly budget exhausted in ~2 hours.
+            Immediate action required.
+          dashboard: "http://grafana:3000/d/slo-dashboard"
+
+      # P2 — Slow burn: consuming error budget over 6 hours (6× rate)
+      # Less urgent but significant. Page during business hours.
+      - alert: SLOBurnRateWarning
+        expr: |
+          (job:http_error_ratio:rate30m > (6 * 0.001))
+          and
+          (job:http_error_ratio:rate6h > (6 * 0.001))
+        for: 15m
+        labels:
+          severity: warning
+          slo: availability
+          runbook: "https://wiki.internal/runbooks/SLOBurnRateWarning"
+        annotations:
+          summary: "P2: SLO burn rate elevated on {{ $labels.job }}"
+          description: |
+            {{ $labels.job }} error rate {{ $value | humanizePercentage }} over last 30m.
+            At 6× budget burn rate — monthly error budget ~33% consumed if sustained 5h.
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # SLO: Latency — 95% of requests < 300ms, 99% < 1000ms
+  # ══════════════════════════════════════════════════════════════════════════
+  - name: slo_latency
+    rules:
+      - record: job:http_request_duration_p95:rate5m
+        expr: |
+          histogram_quantile(0.95,
+            sum by (job, le) (rate(http_server_requests_seconds_bucket[5m]))
+          )
+
+      - record: job:http_request_duration_p99:rate5m
+        expr: |
+          histogram_quantile(0.99,
+            sum by (job, le) (rate(http_server_requests_seconds_bucket[5m]))
+          )
+
+      - alert: LatencyP95SLOBreached
+        expr: job:http_request_duration_p95:rate5m > 0.300
+        for: 5m
+        labels:
+          severity: warning
+          slo: latency
+          runbook: "https://wiki.internal/runbooks/high-latency"
+        annotations:
+          summary: "P95 latency SLO breached: {{ $labels.job }}"
+          description: |
+            {{ $labels.job }} P95 latency is {{ $value | humanizeDuration }} (SLO: 300ms).
+            Check: DB slow queries, Kafka consumer lag, GC pressure, upstream ML service.
+
+      - alert: LatencyP99SLOBreached
+        expr: job:http_request_duration_p99:rate5m > 1.000
+        for: 3m
+        labels:
+          severity: critical
+          slo: latency
+          runbook: "https://wiki.internal/runbooks/high-latency"
+        annotations:
+          summary: "P1: P99 latency SLO breached: {{ $labels.job }}"
+          description: |
+            {{ $labels.job }} P99 latency is {{ $value | humanizeDuration }} (SLO: 1000ms).
+            Customer-impacting: tail requests timing out.
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # SLO: Kafka — consumer lag < 1000 messages, max lag < 5000
+  # ══════════════════════════════════════════════════════════════════════════
+  - name: slo_kafka
+    rules:
+      - alert: KafkaConsumerLagWarning
+        expr: |
+          sum by (consumer_group, topic) (kafka_consumer_group_lag) > 1000
+        for: 5m
+        labels:
+          severity: warning
+          component: kafka
+          runbook: "https://wiki.internal/runbooks/kafka-lag"
+        annotations:
+          summary: "Kafka lag building: {{ $labels.consumer_group }} / {{ $labels.topic }}"
+          description: |
+            Consumer group {{ $labels.consumer_group }} has {{ $value }} messages lag on
+            topic {{ $labels.topic }}. Services may be slow to process events.
+            Possible causes: service restarted, consumer crashed, or upstream traffic spike.
+
+      - alert: KafkaConsumerLagCritical
+        expr: |
+          sum by (consumer_group, topic) (kafka_consumer_group_lag) > 5000
+        for: 2m
+        labels:
+          severity: critical
+          component: kafka
+          runbook: "https://wiki.internal/runbooks/kafka-lag"
+        annotations:
+          summary: "P1: Kafka consumer critically behind: {{ $labels.consumer_group }}"
+          description: |
+            Consumer group {{ $labels.consumer_group }} has {{ $value }} messages lag
+            on {{ $labels.topic }}. At 5000+ messages, data freshness SLO is breached.
+            Scale up consumers immediately or investigate consumer health.
+
+      - alert: KafkaBrokerDown
+        expr: kafka_brokers < 1
+        for: 1m
+        labels:
+          severity: critical
+          component: kafka
+          runbook: "https://wiki.internal/runbooks/kafka-lag"
+        annotations:
+          summary: "P1: No Kafka brokers reachable"
+          description: "All Kafka brokers are unreachable. Event-driven services will fail."
+
+      - alert: KafkaTopicPartitionUnavailable
+        expr: kafka_topic_partition_under_replicated_partition > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: kafka
+        annotations:
+          summary: "Kafka topic has under-replicated partitions: {{ $labels.topic }}"
+          description: "{{ $value }} partitions under-replicated on topic {{ $labels.topic }}."
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # SLO: Database — connection pool < 80% utilization, query time < 500ms
+  # ══════════════════════════════════════════════════════════════════════════
+  - name: slo_database
+    rules:
+      - alert: DBConnectionPoolHigh
+        expr: |
+          (hikaricp_connections_active / hikaricp_connections_max) > 0.80
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+          runbook: "https://wiki.internal/runbooks/db-connection-issues"
+        annotations:
+          summary: "DB connection pool > 80%: {{ $labels.pool }}"
+          description: |
+            HikariCP pool {{ $labels.pool }} on {{ $labels.job }} is at
+            {{ $value | humanizePercentage }} utilization (SLO: < 80%).
+            Risk of connection timeouts under continued load.
+
+      - alert: DBConnectionPoolExhausted
+        expr: hikaricp_connections_timeout_total > 0
+        for: 1m
+        labels:
+          severity: critical
+          component: database
+          runbook: "https://wiki.internal/runbooks/db-connection-issues"
+        annotations:
+          summary: "P1: DB connection pool exhausted: {{ $labels.job }}"
+          description: |
+            {{ $labels.job }} is failing to acquire DB connections ({{ $value }} timeouts).
+            Requests are returning 503. Immediate action required.
+
+      - alert: DBQuerySlow
+        expr: |
+          histogram_quantile(0.95,
+            rate(spring_data_repository_invocations_seconds_bucket[5m])
+          ) > 0.500
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+          runbook: "https://wiki.internal/runbooks/db-connection-issues"
+        annotations:
+          summary: "Slow DB queries on {{ $labels.job }}"
+          description: |
+            P95 DB query time is {{ $value | humanizeDuration }} (threshold: 500ms).
+            Check for missing indexes, long transactions, or vacuum issues.
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # SLO: JVM Health — heap < 85%, GC pause < 500ms
+  # ══════════════════════════════════════════════════════════════════════════
+  - name: slo_jvm
+    rules:
+      - alert: JVMHeapCritical
+        expr: |
+          (jvm_memory_used_bytes{area="heap"}
+          /
+          jvm_memory_max_bytes{area="heap"}) > 0.90
+        for: 3m
+        labels:
+          severity: critical
+          component: jvm
+          runbook: "https://wiki.internal/runbooks/service-crash"
+        annotations:
+          summary: "P1: JVM heap critical on {{ $labels.job }}"
+          description: |
+            {{ $labels.job }} heap at {{ $value | humanizePercentage }}.
+            OOM imminent. Check for memory leaks, increase heap, or restart service.
+
+      - alert: JVMHeapWarning
+        expr: |
+          (jvm_memory_used_bytes{area="heap"}
+          /
+          jvm_memory_max_bytes{area="heap"}) > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          component: jvm
+        annotations:
+          summary: "JVM heap high on {{ $labels.job }}: {{ $value | humanizePercentage }}"
+          description: "Investigate for memory leaks or increase -Xmx."
+
+      - alert: JVMGCPauseHigh
+        expr: |
+          rate(jvm_gc_pause_seconds_sum[5m])
+          /
+          rate(jvm_gc_pause_seconds_count[5m]) > 0.500
+        for: 5m
+        labels:
+          severity: warning
+          component: jvm
+        annotations:
+          summary: "GC pause time high on {{ $labels.job }}"
+          description: |
+            Average GC pause {{ $value | humanizeDuration }} (threshold: 500ms).
+            Latency degradation likely. Consider tuning GC or reducing heap pressure.
+
+      - alert: JVMThreadDeadlock
+        expr: jvm_threads_deadlocked > 0
+        for: 1m
+        labels:
+          severity: critical
+          component: jvm
+          runbook: "https://wiki.internal/runbooks/service-crash"
+        annotations:
+          summary: "P1: Thread deadlock detected on {{ $labels.job }}"
+          description: |
+            {{ $value }} deadlocked threads on {{ $labels.job }}.
+            Service will hang — restart immediately. Capture thread dump first:
+            kubectl exec <pod> -- jcmd 1 Thread.print > thread-dump.txt
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # Infrastructure — node and container level
+  # ══════════════════════════════════════════════════════════════════════════
+  - name: slo_infrastructure
+    rules:
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+          runbook: "https://wiki.internal/runbooks/service-crash"
+        annotations:
+          summary: "P1: Service DOWN: {{ $labels.job }}"
+          description: |
+            {{ $labels.job }} has been unreachable for > 1 minute.
+            Prometheus cannot scrape metrics. Service may be crashed or network issue.
+
+      - alert: UptimeSLABreach
+        expr: |
+          (
+            sum by (job) (rate(up[24h])) /
+            count by (job) (up)
+          ) < 0.999
+        for: 0m
+        labels:
+          severity: critical
+          slo: availability
+        annotations:
+          summary: "24h uptime SLA breached: {{ $labels.job }}"
+          description: |
+            {{ $labels.job }} 24-hour uptime is {{ $value | humanizePercentage }}
+            (SLA: 99.9%). Monthly SLA credit threshold breached.
+
+      - alert: DiskSpaceLow
+        expr: |
+          (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"}
+          /
+          node_filesystem_size_bytes{fstype!~"tmpfs|overlay"}) < 0.15
+        for: 10m
+        labels:
+          severity: warning
+          component: infrastructure
+        annotations:
+          summary: "Disk space low on {{ $labels.instance }}: {{ $value | humanizePercentage }} free"
+
+      - alert: DiskSpaceCritical
+        expr: |
+          (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"}
+          /
+          node_filesystem_size_bytes{fstype!~"tmpfs|overlay"}) < 0.05
+        for: 5m
+        labels:
+          severity: critical
+          component: infrastructure
+        annotations:
+          summary: "P1: Disk almost full on {{ $labels.instance }}: {{ $value | humanizePercentage }} free"
+          description: "Services will crash if disk fills. Immediate cleanup or expansion needed."

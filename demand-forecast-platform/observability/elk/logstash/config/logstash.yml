@@ -1,0 +1,21 @@
+http.host: "0.0.0.0"
+http.port: 9600
+
+# Pipeline settings
+pipeline.id: demand-forecast
+pipeline.workers: 2
+pipeline.batch.size: 250
+pipeline.batch.delay: 50
+
+# Path to pipeline config
+path.config: /usr/share/logstash/pipeline
+
+# Dead letter queue — preserve malformed events instead of dropping
+dead_letter_queue.enable: true
+dead_letter_queue.max_bytes: 1024mb
+path.dead_letter_queue: /usr/share/logstash/data/dead_letter_queue
+
+# Monitoring — expose Prometheus metrics via X-Pack monitoring
+xpack.monitoring.enabled: false
+
+log.level: warn

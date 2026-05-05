@@ -1,0 +1,126 @@
+{
+  "version": "1.0.0",
+  "title": "Kafka Consumer Lag Injection — order-events topic",
+  "description": "Suspends order-service consumers to simulate lag buildup. Validates that Prometheus alert KafkaConsumerLagHigh fires within 2 minutes and Alertmanager routes to PagerDuty.",
+  "tags": ["kafka", "lag", "order-service", "sre"],
+  "configuration": {
+    "kafka_bootstrap": {
+      "type": "env",
+      "key": "KAFKA_BOOTSTRAP_SERVERS",
+      "default": "localhost:29092"
+    },
+    "consumer_group": {
+      "type": "env",
+      "key": "KAFKA_CONSUMER_GROUP",
+      "default": "order-service-group"
+    },
+    "lag_threshold": {
+      "type": "env",
+      "key": "KAFKA_LAG_THRESHOLD",
+      "default": "1000"
+    },
+    "prometheus_url": {
+      "type": "env",
+      "key": "PROMETHEUS_URL",
+      "default": "http://localhost:9090"
+    }
+  },
+  "steady-state-hypothesis": {
+    "title": "Kafka consumer lag is within normal bounds",
+    "probes": [
+      {
+        "name": "consumer-lag-normal",
+        "type": "probe",
+        "tolerance": true,
+        "provider": {
+          "type": "process",
+          "path": "bash",
+          "arguments": [
+            "-c",
+            "LAG=$(curl -sf '${prometheus_url}/api/v1/query?query=kafka_consumer_group_lag{group=\"${consumer_group}\"}' | python3 -c \"import sys,json; data=json.load(sys.stdin); vals=[float(r['value'][1]) for r in data['data']['result']]; print(max(vals) if vals else 0)\"); [ $(echo \"$LAG < 100\" | bc) -eq 1 ]"
+          ],
+          "timeout": 10
+        }
+      },
+      {
+        "name": "order-service-healthy",
+        "type": "probe",
+        "tolerance": 200,
+        "provider": {
+          "type": "http",
+          "url": "http://localhost:8082/actuator/health",
+          "method": "GET",
+          "timeout": 5
+        }
+      }
+    ]
+  },
+  "method": [
+    {
+      "name": "suspend-order-service-consumers",
+      "type": "action",
+      "provider": {
+        "type": "process",
+        "path": "bash",
+        "arguments": [
+          "-c",
+          "docker compose -f demand-forecast-platform/docker-compose.yml pause order-service && echo '[CHAOS] order-service paused — Kafka messages will accumulate on order.events'"
+        ]
+      }
+    },
+    {
+      "name": "produce-load-to-order-events",
+      "type": "action",
+      "provider": {
+        "type": "process",
+        "path": "bash",
+        "arguments": [
+          "-c",
+          "for i in $(seq 1 2000); do echo \"{\\\"orderId\\\":\\\"chaos-$i\\\",\\\"status\\\":\\\"PENDING\\\"}\" | docker exec -i $(docker ps -qf name=kafka) kafka-console-producer --bootstrap-server localhost:9092 --topic order.events; done && echo '[CHAOS] 2000 messages produced to order.events'"
+        ]
+      },
+      "pauses": {
+        "before": 2
+      }
+    },
+    {
+      "name": "wait-for-lag-buildup",
+      "type": "action",
+      "provider": {
+        "type": "process",
+        "path": "sleep",
+        "arguments": ["30"]
+      }
+    },
+    {
+      "name": "verify-alert-fired",
+      "type": "probe",
+      "tolerance": true,
+      "provider": {
+        "type": "process",
+        "path": "bash",
+        "arguments": [
+          "-c",
+          "ALERT=$(curl -sf 'http://localhost:9090/api/v1/alerts' | python3 -c \"import sys,json; data=json.load(sys.stdin); alerts=[a for a in data['data']['alerts'] if a['labels'].get('alertname')=='KafkaConsumerLagHigh']; print(len(alerts))\"); [ \"$ALERT\" -gt 0 ] && echo '[CHAOS] KafkaConsumerLagHigh alert confirmed firing'"
+        ]
+      },
+      "pauses": {
+        "before": 60
+      }
+    }
+  ],
+  "rollbacks": [
+    {
+      "name": "resume-order-service",
+      "type": "action",
+      "provider": {
+        "type": "process",
+        "path": "bash",
+        "arguments": [
+          "-c",
+          "docker compose -f demand-forecast-platform/docker-compose.yml unpause order-service && echo '[CHAOS] order-service resumed — draining lag'"
+        ]
+      }
+    }
+  ]
+}

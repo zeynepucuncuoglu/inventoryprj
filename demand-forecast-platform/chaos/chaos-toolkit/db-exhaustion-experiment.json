@@ -1,0 +1,105 @@
+{
+  "version": "1.0.0",
+  "title": "PostgreSQL Connection Pool Exhaustion — order-db",
+  "description": "Opens max_connections idle connections to order-db, exhausting the HikariCP pool (default max: 10). Validates that order-service degrades gracefully with 503s and HikariPoolExhausted metric fires. Tests connection pool sizing assumptions.",
+  "tags": ["database", "connection-pool", "hikari", "order-service", "sre"],
+  "configuration": {
+    "db_host": {"type": "env", "key": "ORDER_DB_HOST", "default": "localhost"},
+    "db_port": {"type": "env", "key": "ORDER_DB_PORT", "default": "5433"},
+    "db_name": {"type": "env", "key": "ORDER_DB_NAME", "default": "orderdb"},
+    "db_user": {"type": "env", "key": "ORDER_DB_USER", "default": "orderuser"},
+    "db_password": {"type": "env", "key": "ORDER_DB_PASSWORD"},
+    "num_connections": {"type": "env", "key": "CHAOS_DB_CONNECTIONS", "default": "15"}
+  },
+  "steady-state-hypothesis": {
+    "title": "order-service can create orders with < 200ms p95 latency",
+    "probes": [
+      {
+        "name": "order-db-reachable",
+        "type": "probe",
+        "tolerance": true,
+        "provider": {
+          "type": "process",
+          "path": "bash",
+          "arguments": ["-c", "pg_isready -h ${db_host} -p ${db_port} -U ${db_user} -d ${db_name}"]
+        }
+      },
+      {
+        "name": "order-service-healthy",
+        "type": "probe",
+        "tolerance": 200,
+        "provider": {
+          "type": "http",
+          "url": "http://localhost:8082/actuator/health",
+          "timeout": 5
+        }
+      }
+    ]
+  },
+  "method": [
+    {
+      "name": "exhaust-db-connections",
+      "type": "action",
+      "provider": {
+        "type": "process",
+        "path": "bash",
+        "arguments": [
+          "-c",
+          "python3 demand-forecast-platform/chaos/scripts/exhaust-db-connections.py --host ${db_host} --port ${db_port} --db ${db_name} --user ${db_user} --password ${db_password} --connections ${num_connections} --hold 120 &\necho \"[CHAOS] Holding $CHAOS_DB_CONNECTIONS connections for 120s\""
+        ]
+      }
+    },
+    {
+      "name": "wait-for-pool-exhaustion",
+      "type": "action",
+      "provider": {
+        "type": "process",
+        "path": "sleep",
+        "arguments": ["10"]
+      }
+    },
+    {
+      "name": "verify-order-creation-fails",
+      "type": "probe",
+      "tolerance": 503,
+      "provider": {
+        "type": "http",
+        "url": "http://localhost:8082/api/orders",
+        "method": "POST",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer ${JWT_TEST_TOKEN}"
+        },
+        "body": "{\"productId\":\"chaos-test\",\"quantity\":1,\"customerId\":\"chaos\"}",
+        "timeout": 10
+      }
+    },
+    {
+      "name": "check-hikari-exhausted-metric",
+      "type": "probe",
+      "tolerance": true,
+      "provider": {
+        "type": "process",
+        "path": "bash",
+        "arguments": [
+          "-c",
+          "TIMEOUT=$(curl -sf 'http://localhost:9090/api/v1/query?query=hikaricp_connections_timeout_total{pool=\"HikariPool-1\"}' | python3 -c \"import sys,json; d=json.load(sys.stdin); vals=d['data']['result']; print(float(vals[0]['value'][1]) if vals else 0)\"); echo \"[CHAOS] HikariCP timeout count: $TIMEOUT\"; [ $(echo \"$TIMEOUT > 0\" | bc) -eq 1 ]"
+        ]
+      }
+    }
+  ],
+  "rollbacks": [
+    {
+      "name": "kill-chaos-connections",
+      "type": "action",
+      "provider": {
+        "type": "process",
+        "path": "bash",
+        "arguments": [
+          "-c",
+          "pkill -f exhaust-db-connections.py; docker exec -i $(docker ps -qf name=order-db) psql -U ${db_user} -d ${db_name} -c \"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name='chaos-exhaust' AND pid <> pg_backend_pid();\"; echo '[CHAOS ROLLBACK] All chaos connections terminated'"
+        ]
+      }
+    }
+  ]
+}

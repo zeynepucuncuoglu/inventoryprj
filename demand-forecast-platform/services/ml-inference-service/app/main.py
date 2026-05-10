@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
+from prometheus_fastapi_instrumentator import Instrumentator
 import logging
 
 from app.schemas.forecast_schemas import ForecastRequest, ForecastResponse
@@ -13,6 +14,8 @@ app = FastAPI(
     description="Demand forecasting using Prophet / ARIMA models",
     version="1.0.0",
 )
+
+Instrumentator().instrument(app).expose(app)
 
 
 @app.get("/health")

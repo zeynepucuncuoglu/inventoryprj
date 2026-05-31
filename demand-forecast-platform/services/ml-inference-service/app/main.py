@@ -1,10 +1,11 @@
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
 from prometheus_fastapi_instrumentator import Instrumentator
 import logging
+import time
 
 from app.schemas.forecast_schemas import ForecastRequest, ForecastResponse
 from app.services.prophet_forecaster import run_prophet_forecast
+from app.monitoring import record_prediction, record_data_quality_issue
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -38,14 +39,38 @@ def forecast(request: ForecastRequest):
     if request.model != "prophet":
         raise HTTPException(status_code=400, detail=f"Unsupported model: {request.model}")
 
+    if len(request.historical_data) < 7:
+        record_data_quality_issue("insufficient_history")
+
+    start_time = time.time()
     try:
         result = run_prophet_forecast(request)
-        logger.info("Forecast complete: product_id=%s mae=%.4f", request.product_id, result.mae)
+        duration = time.time() - start_time
+
+        record_prediction(
+            model=request.model,
+            mae=result.mae,
+            predicted_values=[p.predicted_demand for p in result.forecast],
+            input_data_points=len(request.historical_data),
+            duration_seconds=duration,
+            success=True,
+        )
+
+        logger.info(
+            "Forecast complete: product_id=%s mae=%.4f duration=%.2fs",
+            request.product_id, result.mae, duration
+        )
         return result
 
     except ValueError as e:
+        record_prediction(model=request.model, mae=0, predicted_values=[],
+                          input_data_points=len(request.historical_data),
+                          duration_seconds=time.time() - start_time, success=False)
         logger.warning("Invalid forecast request: %s", str(e))
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
+        record_prediction(model=request.model, mae=0, predicted_values=[],
+                          input_data_points=len(request.historical_data),
+                          duration_seconds=time.time() - start_time, success=False)
         logger.error("Forecast failed for product_id=%s: %s", request.product_id, str(e))
         raise HTTPException(status_code=500, detail="Forecast computation failed")

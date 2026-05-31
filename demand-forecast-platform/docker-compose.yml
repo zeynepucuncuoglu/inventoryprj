@@ -88,19 +88,59 @@ services:
   # Kafka UI — visual dashboard at http://localhost:8090
   # ─────────────────────────────────────────────
 
+  # ─────────────────────────────────────────────
+  # Schema Registry — Kafka mesaj şemalarını versiyonlar
+  # Servisler mesaj göndermeden önce şemayı doğrular
+  # UI: http://localhost:8081 (Confluent Control Center değil, schema-registry-ui)
+  # ─────────────────────────────────────────────
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.6.0
+    container_name: schema-registry
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8091:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka:9092
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+    networks:
+      - forecast-net
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8081/subjects"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
     container_name: kafka-ui
+    restart: unless-stopped
     depends_on:
       kafka:
+        condition: service_healthy
+      schema-registry:
         condition: service_healthy
     ports:
       - "8090:8080"
     environment:
       KAFKA_CLUSTERS_0_NAME: local
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_SCHEMAREGISTRY: http://schema-registry:8081
     networks:
       - forecast-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
 
   # ─────────────────────────────────────────────
   # Redis — used by API Gateway rate limiter

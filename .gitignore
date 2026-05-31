@@ -17,3 +17,11 @@
 # Environment
 .env
 *.env.local
+
+# DB Backups — never commit backup files
+**/backups/
+*.sql.gz
+
+# Logs
+**/logs/
+*.log

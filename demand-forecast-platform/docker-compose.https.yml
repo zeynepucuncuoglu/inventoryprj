@@ -1,0 +1,41 @@
+# HTTPS overlay — ana docker-compose.yml üzerine ekle
+# Kullanım:
+#   docker compose -f docker-compose.yml -f docker-compose.https.yml up -d
+#
+# Gereksinim:
+#   1. infrastructure/caddy/Caddyfile içinde domain'i güncelle
+#   2. DNS'i sunucu IP'sine yönlendir
+#   3. 80 ve 443 portları açık olmalı
+
+networks:
+  forecast-net:
+    external: true
+
+volumes:
+  caddy-data:    # SSL sertifikaları burada saklanır
+  caddy-config:
+
+services:
+  caddy:
+    image: caddy:2.8-alpine
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infrastructure/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data           # Let's Encrypt sertifikaları
+      - caddy-config:/config       # Caddy internal config
+    networks:
+      - forecast-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:80"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

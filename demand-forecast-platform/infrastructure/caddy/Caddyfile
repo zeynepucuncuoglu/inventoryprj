@@ -1,0 +1,71 @@
+# Caddy reverse proxy — otomatik HTTPS (Let's Encrypt)
+# Domain'i değiştir: api.domain.com → senin domain'in
+#
+# Lokalde test için:
+#   api.localhost → HTTP, otomatik self-signed sertifika
+#
+# Production'da:
+#   api.domain.com → otomatik Let's Encrypt sertifikası (ücretsiz)
+
+{
+    # Global seçenekler
+    email admin@domain.com    # Let's Encrypt bildirimleri için — değiştir
+}
+
+# ── API Gateway ────────────────────────────────────────────────────────────
+api.domain.com {
+    reverse_proxy api-gateway:8080
+
+    # Güvenlik header'ları
+    header {
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        X-XSS-Protection "1; mode=block"
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        -Server  # Caddy'nin kendini açıklamaması için
+    }
+
+    # Rate limiting — Caddy seviyesinde ek koruma
+    # (Redis tabanlı rate limiting api-gateway'de zaten var)
+
+    log {
+        output file /var/log/caddy/access.log {
+            roll_size 100mb
+            roll_keep 5
+        }
+    }
+}
+
+# ── Grafana ────────────────────────────────────────────────────────────────
+grafana.domain.com {
+    reverse_proxy grafana:3000
+
+    header {
+        Strict-Transport-Security "max-age=31536000"
+        -Server
+    }
+}
+
+# ── Kafka UI ───────────────────────────────────────────────────────────────
+# Dikkat: Production'da internete açma, VPN arkasında tut
+kafka.domain.com {
+    reverse_proxy kafka-ui:8080
+
+    # Temel HTTP auth — sadece yetkili kişiler erişebilsin
+    basicauth {
+        # htpasswd ile şifrelenmiş kullanıcı adı:şifre
+        # Oluşturmak için: caddy hash-password --plaintext "sifren"
+        admin $2a$14$CHANGE_ME_HASHED_PASSWORD
+    }
+
+    header {
+        Strict-Transport-Security "max-age=31536000"
+        -Server
+    }
+}
+
+# ── Lokalde geliştirme için HTTP ───────────────────────────────────────────
+:80 {
+    # HTTP isteklerini HTTPS'e yönlendir
+    redir https://{host}{uri} permanent
+}

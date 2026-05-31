@@ -153,7 +153,7 @@ jobs:
 
       - name: Deploy to staging server
         if: env.STAGING_HOST != ''
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.STAGING_HOST }}
           username: ${{ secrets.STAGING_USER }}
@@ -189,7 +189,7 @@ jobs:
 
       - name: Deploy to production server
         if: env.PROD_HOST != ''
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.PROD_HOST }}
           username: ${{ secrets.PROD_USER }}

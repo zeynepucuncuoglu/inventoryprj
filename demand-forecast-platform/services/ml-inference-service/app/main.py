@@ -16,7 +16,7 @@ app = FastAPI(
     version="1.0.0",
 )
 
-Instrumentator().instrument(app).expose(app)
+Instrumentator().instrument(app).expose(app, include_in_schema=False)
 
 
 @app.get("/health")

@@ -110,9 +110,9 @@ jobs:
             -Dspring.datasource.password=testpass
 
       # Replaced dorny/test-reporter@v1 (Node 20, permission issues)
-      # with mikepenz/action-junit-report@v5 (Node 24, actively maintained)
+      # with mikepenz/action-junit-report@v6 (Node 24, actively maintained)
       - name: Publish test report
-        uses: mikepenz/action-junit-report@v5
+        uses: mikepenz/action-junit-report@v6
         if: always()
         with:
           report_paths: "${{ env.COMPOSE_DIR }}/services/${{ matrix.service }}/target/surefire-reports/*.xml"

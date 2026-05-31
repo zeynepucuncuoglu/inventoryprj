@@ -1,0 +1,112 @@
+version: 2
+
+updates:
+  # ── GitHub Actions ────────────────────────────────────────────────────────
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Europe/Istanbul
+    labels: ["dependencies", "ci-cd"]
+    commit-message:
+      prefix: "ci(deps)"
+
+  # ── Java — api-gateway ────────────────────────────────────────────────────
+  - package-ecosystem: maven
+    directory: "/demand-forecast-platform/services/api-gateway"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Europe/Istanbul
+    labels: ["dependencies", "java", "api-gateway"]
+    commit-message:
+      prefix: "build(deps)"
+    open-pull-requests-limit: 5
+    groups:
+      spring-boot:
+        patterns: ["org.springframework*", "io.spring*"]
+
+  # ── Java — product-service ────────────────────────────────────────────────
+  - package-ecosystem: maven
+    directory: "/demand-forecast-platform/services/product-service"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Europe/Istanbul
+    labels: ["dependencies", "java", "product-service"]
+    commit-message:
+      prefix: "build(deps)"
+    open-pull-requests-limit: 5
+    groups:
+      spring-boot:
+        patterns: ["org.springframework*"]
+
+  # ── Java — order-service ──────────────────────────────────────────────────
+  - package-ecosystem: maven
+    directory: "/demand-forecast-platform/services/order-service"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Europe/Istanbul
+    labels: ["dependencies", "java", "order-service"]
+    commit-message:
+      prefix: "build(deps)"
+    open-pull-requests-limit: 5
+    groups:
+      spring-boot:
+        patterns: ["org.springframework*"]
+
+  # ── Java — forecast-service ───────────────────────────────────────────────
+  - package-ecosystem: maven
+    directory: "/demand-forecast-platform/services/forecast-service"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Europe/Istanbul
+    labels: ["dependencies", "java", "forecast-service"]
+    commit-message:
+      prefix: "build(deps)"
+    open-pull-requests-limit: 5
+    groups:
+      spring-boot:
+        patterns: ["org.springframework*"]
+
+  # ── Java — notification-service ───────────────────────────────────────────
+  - package-ecosystem: maven
+    directory: "/demand-forecast-platform/services/notification-service"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Europe/Istanbul
+    labels: ["dependencies", "java", "notification-service"]
+    commit-message:
+      prefix: "build(deps)"
+    open-pull-requests-limit: 5
+    groups:
+      spring-boot:
+        patterns: ["org.springframework*"]
+
+  # ── Python — ml-inference-service ─────────────────────────────────────────
+  - package-ecosystem: pip
+    directory: "/demand-forecast-platform/services/ml-inference-service"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Europe/Istanbul
+    labels: ["dependencies", "python", "ml-service"]
+    commit-message:
+      prefix: "build(deps)"
+    open-pull-requests-limit: 5
+    groups:
+      ml-libs:
+        patterns: ["pandas", "numpy", "scikit-learn", "prophet", "joblib"]
+      fastapi:
+        patterns: ["fastapi", "uvicorn", "pydantic"]

@@ -21,7 +21,30 @@ Instrumentator().instrument(app).expose(app)
 
 @app.get("/health")
 def health():
+    """Liveness probe — JVM/process çalışıyor mu?"""
     return {"status": "UP", "service": "ml-inference-service"}
+
+
+@app.get("/health/ready")
+def readiness():
+    """
+    Readiness probe — servis istek almaya hazır mı?
+    Prophet kütüphanesi ve sklearn import'larını doğrular.
+    K8s bu endpoint'i geçene kadar pod'a trafik göndermez.
+    """
+    try:
+        import prophet  # noqa: F401
+        import sklearn  # noqa: F401
+        import pandas   # noqa: F401
+        return {"status": "READY", "service": "ml-inference-service"}
+    except ImportError as e:
+        logger.error("Readiness check failed: %s", str(e))
+        from fastapi import Response
+        return Response(
+            content=f'{{"status":"NOT_READY","error":"{str(e)}"}}',
+            status_code=503,
+            media_type="application/json"
+        )
 
 
 @app.post("/api/v1/forecast", response_model=ForecastResponse)

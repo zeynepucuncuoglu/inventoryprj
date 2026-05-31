@@ -427,6 +427,7 @@ services:
   prometheus:
     image: prom/prometheus:v2.51.2
     container_name: prometheus
+    restart: unless-stopped
     ports:
       - "9090:9090"
     volumes:
@@ -447,6 +448,11 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "3"
 
   grafana:
     image: grafana/grafana:10.4.2

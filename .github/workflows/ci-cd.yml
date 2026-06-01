@@ -39,14 +39,16 @@ jobs:
         with: { fetch-depth: 0 }
 
       - name: Trivy — filesystem scan (warn only, never blocks pipeline)
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@v0.31.0
         with:
           scan-type: fs
           scan-ref: ./demand-forecast-platform
           format: sarif
           output: trivy-results.sarif
           severity: "HIGH,CRITICAL"
-          exit-code: "0"          # changed: warn only, never fail the job
+          exit-code: "0"
+          timeout: "10m"          # Maven POM resolution can be slow
+        continue-on-error: true   # scan crash (FATAL) also must not block pipeline
 
       - name: Upload Trivy SARIF to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v4    # updated: v3 → v4

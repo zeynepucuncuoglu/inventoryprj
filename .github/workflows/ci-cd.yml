@@ -35,7 +35,7 @@ jobs:
       contents: read
       security-events: write  # required for upload-sarif
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with: { fetch-depth: 0 }
 
       - name: Trivy — filesystem scan (warn only, never blocks pipeline)
@@ -93,9 +93,9 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           java-version: ${{ env.JAVA_VERSION }}
           distribution: temurin
@@ -110,9 +110,9 @@ jobs:
             -Dspring.datasource.password=testpass
 
       # Replaced dorny/test-reporter@v1 (Node 20, permission issues)
-      # with mikepenz/action-junit-report@v5 (Node 24, actively maintained)
+      # with mikepenz/action-junit-report@v6 (Node 24, actively maintained)
       - name: Publish test report
-        uses: mikepenz/action-junit-report@v5
+        uses: mikepenz/action-junit-report@v6
         if: always()
         with:
           report_paths: "${{ env.COMPOSE_DIR }}/services/${{ matrix.service }}/target/surefire-reports/*.xml"
@@ -122,7 +122,7 @@ jobs:
           include_passed: true
 
       - name: Upload JaCoCo coverage
-        uses: codecov/codecov-action@v5    # updated: v4 → v5
+        uses: codecov/codecov-action@v6    # updated: v4 → v5
         with:
           files: "${{ env.COMPOSE_DIR }}/services/${{ matrix.service }}/target/site/jacoco/jacoco.xml"
           flags: ${{ matrix.service }}
@@ -137,9 +137,9 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
@@ -159,7 +159,7 @@ jobs:
             -p no:cacheprovider
 
       - name: Upload coverage
-        uses: codecov/codecov-action@v5    # updated: v4 → v5
+        uses: codecov/codecov-action@v6    # updated: v4 → v5
         with:
           files: "${{ env.COMPOSE_DIR }}/services/ml-inference-service/coverage.xml"
           flags: ml-inference-service
@@ -182,20 +182,20 @@ jobs:
     outputs:
       image-tag: ${{ steps.meta.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
       - name: Docker metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.IMAGE_PREFIX }}-${{ matrix.service }}
           tags: |
@@ -205,7 +205,7 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push
-        uses: docker/build-push-action@v6    # updated: v5 → v6
+        uses: docker/build-push-action@v7    # updated: v5 → v6
         with:
           context: ${{ env.COMPOSE_DIR }}/services/${{ matrix.service }}
           push: true
@@ -240,10 +240,10 @@ jobs:
       name: dev
       url: http://dev.demand-forecast.internal:8080
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Deploy to dev server
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.DEV_SERVER_HOST }}
           username: ${{ secrets.DEV_SERVER_USER }}
@@ -267,7 +267,7 @@ jobs:
 
       - name: Notify Slack — dev deployed
         if: always()
-        uses: slackapi/slack-github-action@v2
+        uses: slackapi/slack-github-action@v3
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_PLATFORM }}
           webhook-type: incoming-webhook
@@ -288,10 +288,10 @@ jobs:
       name: staging
       url: http://staging.demand-forecast.internal:9080
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Deploy to staging
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.STAGING_SERVER_HOST }}
           username: ${{ secrets.STAGING_SERVER_USER }}
@@ -345,7 +345,7 @@ jobs:
       name: production
       url: https://api.demand-forecast.internal
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Create deployment record
         uses: chrnorm/deployment-action@v2
@@ -356,7 +356,7 @@ jobs:
           description: "Deploying sha-${{ github.sha }} to production"
 
       - name: Deploy to production (blue-green)
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.PROD_SERVER_HOST }}
           username: ${{ secrets.PROD_SERVER_USER }}
@@ -397,7 +397,7 @@ jobs:
 
       - name: Auto-rollback on failure
         if: failure()
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.PROD_SERVER_HOST }}
           username: ${{ secrets.PROD_SERVER_USER }}
@@ -408,7 +408,7 @@ jobs:
 
       - name: Notify Slack — production result
         if: always()
-        uses: slackapi/slack-github-action@v2
+        uses: slackapi/slack-github-action@v3
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_INCIDENTS }}
           webhook-type: incoming-webhook

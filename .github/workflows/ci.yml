@@ -77,16 +77,17 @@ jobs:
         # forecaster uses numpy/pandas only (see prophet_forecaster.py)
         run: |
           pip install \
-            fastapi==0.111.0 \
-            "uvicorn[standard]==0.29.0" \
-            pydantic==2.7.0 \
+            fastapi==0.136.3 \
+            "uvicorn[standard]==0.48.0" \
+            pydantic==2.11.5 \
             pandas==2.2.2 \
             numpy==1.26.4 \
             scikit-learn==1.4.2 \
             joblib==1.4.2 \
-            httpx==0.27.0 \
+            httpx==0.28.1 \
+            prometheus-fastapi-instrumentator==8.0.0 \
             pytest==8.2.0 \
-            pytest-asyncio==0.23.6
+            pytest-asyncio==1.4.0
 
       - name: Run pytest
         working-directory: demand-forecast-platform/services/ml-inference-service

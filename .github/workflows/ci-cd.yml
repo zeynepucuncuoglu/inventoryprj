@@ -3,10 +3,14 @@ name: CI/CD — Multi-Environment Pipeline
 on:
   push:
     branches: [main, develop, "release/**"]
-    paths: ["demand-forecast-platform/**"]
+    paths:
+      - "demand-forecast-platform/**"
+      - ".github/workflows/**"
   pull_request:
     branches: [main, develop]
-    paths: ["demand-forecast-platform/**"]
+    paths:
+      - "demand-forecast-platform/**"
+      - ".github/workflows/**"
 
 env:
   COMPOSE_DIR: demand-forecast-platform

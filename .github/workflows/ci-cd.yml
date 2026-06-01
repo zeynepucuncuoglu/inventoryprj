@@ -398,7 +398,7 @@ jobs:
   ci-gate:
     name: "CI Gate (required)"
     runs-on: ubuntu-latest
-    needs: [test-java, test-python, security-scan]
+    needs: [test-java, test-python, security-scan, build-images]
     if: always()
     permissions:
       contents: read

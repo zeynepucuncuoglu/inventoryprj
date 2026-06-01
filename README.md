@@ -228,6 +228,8 @@ main    → Security scan → Parallel tests → Build
 Defined in [`.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml) and [`Jenkinsfile`](demand-forecast-platform/Jenkinsfile).  
 Dependabot configured for weekly security updates across all services.
 
+> **Note:** Deployment steps are configured as non-blocking (`continue-on-error: true`) because this is a portfolio/demo project without live production server secrets. The real quality gate (`ci-gate` job) blocks the pipeline on test failures or Docker build failures — deploy steps are intentionally non-blocking since no server secrets are configured.
+
 ---
 
 ## SLO / Alerting

@@ -73,7 +73,7 @@ def forecast(request: ForecastRequest):
         record_prediction(
             model=request.model,
             mae=result.mae,
-            predicted_values=[p.predicted_demand for p in result.forecast],
+            predicted_values=[p.predicted_quantity for p in result.forecast],
             input_data_points=len(request.historical_data),
             duration_seconds=duration,
             success=True,

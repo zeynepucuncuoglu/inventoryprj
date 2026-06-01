@@ -73,21 +73,11 @@ jobs:
 
       - name: Install dependencies
         working-directory: demand-forecast-platform/services/ml-inference-service
-        # prophet requires CmdStan which bloats CI; skip it since the
-        # forecaster uses numpy/pandas only (see prophet_forecaster.py)
+        # Prophet is skipped — requires CmdStan which bloats CI (~5GB).
+        # All other deps come directly from requirements.txt so they stay in sync.
         run: |
-          pip install \
-            fastapi==0.136.3 \
-            "uvicorn[standard]==0.48.0" \
-            pydantic==2.11.5 \
-            pandas==2.2.2 \
-            numpy==1.26.4 \
-            scikit-learn==1.4.2 \
-            joblib==1.4.2 \
-            httpx==0.28.1 \
-            prometheus-fastapi-instrumentator==8.0.0 \
-            pytest==8.2.0 \
-            pytest-asyncio==1.4.0
+          grep -v "^prophet" requirements.txt | pip install -r /dev/stdin
+          pip install pytest-cov
 
       - name: Run pytest
         working-directory: demand-forecast-platform/services/ml-inference-service

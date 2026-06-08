@@ -41,7 +41,7 @@ jobs:
         with: { fetch-depth: 0 }
 
       - name: Trivy — filesystem scan (warn only, never blocks pipeline)
-        uses: aquasecurity/trivy-action@v0.31.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: ./demand-forecast-platform
@@ -126,7 +126,7 @@ jobs:
           include_passed: true
 
       - name: Upload JaCoCo coverage
-        uses: codecov/codecov-action@v6    # updated: v4 → v5
+        uses: codecov/codecov-action@v7    # updated: v4 → v5
         with:
           files: "${{ env.COMPOSE_DIR }}/services/${{ matrix.service }}/target/site/jacoco/jacoco.xml"
           flags: ${{ matrix.service }}
@@ -163,7 +163,7 @@ jobs:
             -p no:cacheprovider
 
       - name: Upload coverage
-        uses: codecov/codecov-action@v6    # updated: v4 → v5
+        uses: codecov/codecov-action@v7    # updated: v4 → v5
         with:
           files: "${{ env.COMPOSE_DIR }}/services/ml-inference-service/coverage.xml"
           flags: ml-inference-service

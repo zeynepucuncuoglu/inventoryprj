@@ -83,6 +83,9 @@ jobs:
           pip install -r requirements.txt
           pip install pytest-cov
 
+      - name: Install CmdStan (cached after first run)
+        run: python -c "from cmdstanpy import install_cmdstan; install_cmdstan()" 2>/dev/null || true
+
       - name: Run pytest
         working-directory: demand-forecast-platform/services/ml-inference-service
         run: pytest tests/ -v --tb=short --junitxml=test-results.xml

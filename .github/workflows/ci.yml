@@ -71,12 +71,16 @@ jobs:
           cache: pip
           cache-dependency-path: demand-forecast-platform/services/ml-inference-service/requirements.txt
 
+      - name: Cache CmdStan
+        uses: actions/cache@v4
+        with:
+          path: ~/.cmdstan
+          key: cmdstan-${{ runner.os }}-${{ hashFiles('demand-forecast-platform/services/ml-inference-service/requirements.txt') }}
+
       - name: Install dependencies
         working-directory: demand-forecast-platform/services/ml-inference-service
-        # Prophet is skipped — requires CmdStan which bloats CI (~5GB).
-        # All other deps come directly from requirements.txt so they stay in sync.
         run: |
-          grep -v "^prophet" requirements.txt | pip install -r /dev/stdin
+          pip install -r requirements.txt
           pip install pytest-cov
 
       - name: Run pytest

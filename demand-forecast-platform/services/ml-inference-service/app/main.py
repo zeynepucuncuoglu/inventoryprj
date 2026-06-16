@@ -4,11 +4,21 @@ import logging
 import time
 
 from app.schemas.forecast_schemas import ForecastRequest, ForecastResponse
-from app.services.prophet_forecaster import run_prophet_forecast
+from app.services.prophet_forecaster import run_prophet_forecast as run_linear_forecast
 from app.monitoring import record_prediction, record_data_quality_issue
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Prophet requires CmdStan — available locally but skipped in CI/Docker builds.
+# Falls back to linear trend model automatically when Prophet is not installed.
+PROPHET_AVAILABLE = False
+try:
+    from app.services.prophet_real_forecaster import run_prophet_real_forecast
+    PROPHET_AVAILABLE = True
+    logger.info("Prophet is available — using real Prophet model")
+except ImportError:
+    logger.info("Prophet not installed — using linear trend fallback")
 
 app = FastAPI(
     title="ML Inference Service",
@@ -59,7 +69,7 @@ def forecast(request: ForecastRequest):
         request.model, len(request.historical_data)
     )
 
-    if request.model != "prophet":
+    if request.model not in ("prophet", "linear"):
         raise HTTPException(status_code=400, detail=f"Unsupported model: {request.model}")
 
     if len(request.historical_data) < 7:
@@ -67,7 +77,13 @@ def forecast(request: ForecastRequest):
 
     start_time = time.time()
     try:
-        result = run_prophet_forecast(request)
+        if request.model == "prophet" and PROPHET_AVAILABLE:
+            logger.info("Running real Prophet forecast for product_id=%s", request.product_id)
+            result = run_prophet_real_forecast(request)
+        else:
+            if request.model == "prophet":
+                logger.warning("Prophet requested but not installed — falling back to linear model")
+            result = run_linear_forecast(request)
         duration = time.time() - start_time
 
         record_prediction(

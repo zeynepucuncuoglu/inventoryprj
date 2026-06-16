@@ -16,7 +16,7 @@ class ForecastRequest(BaseModel):
         min_length=14,
         description="At least 14 days of history required for reliable forecasts"
     )
-    model: Literal["prophet", "arima"] = "prophet"
+    model: Literal["prophet", "arima", "linear"] = "prophet"
 
 
 class ForecastPoint(BaseModel):

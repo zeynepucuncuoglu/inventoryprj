@@ -149,6 +149,12 @@ jobs:
           cache: pip
           cache-dependency-path: "${{ env.COMPOSE_DIR }}/services/ml-inference-service/requirements.txt"
 
+      - name: Cache CmdStan
+        uses: actions/cache@v4
+        with:
+          path: ~/.cmdstan
+          key: cmdstan-${{ runner.os }}-${{ hashFiles(format('{0}/services/ml-inference-service/requirements.txt', env.COMPOSE_DIR)) }}
+
       - name: Install dependencies
         working-directory: ${{ env.COMPOSE_DIR }}/services/ml-inference-service
         run: pip install -r requirements.txt pytest-cov

@@ -10,15 +10,17 @@ from app.monitoring import record_prediction, record_data_quality_issue
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Prophet requires CmdStan — available locally but skipped in CI/Docker builds.
-# Falls back to linear trend model automatically when Prophet is not installed.
+# Prophet requires CmdStan — available locally but not always in CI.
+# Falls back to linear trend model if Prophet or CmdStan is unavailable.
 PROPHET_AVAILABLE = False
 try:
+    import cmdstanpy
+    cmdstanpy.utils.get_cmdstan_path()  # raises if CmdStan not installed
     from app.services.prophet_real_forecaster import run_prophet_real_forecast
     PROPHET_AVAILABLE = True
     logger.info("Prophet is available — using real Prophet model")
-except ImportError:
-    logger.info("Prophet not installed — using linear trend fallback")
+except Exception:
+    logger.info("Prophet/CmdStan not available — using linear trend fallback")
 
 app = FastAPI(
     title="ML Inference Service",

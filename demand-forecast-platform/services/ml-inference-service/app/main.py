@@ -81,10 +81,14 @@ def forecast(request: ForecastRequest):
     try:
         if request.model == "prophet" and PROPHET_AVAILABLE:
             logger.info("Running real Prophet forecast for product_id=%s", request.product_id)
-            result = run_prophet_real_forecast(request)
+            try:
+                result = run_prophet_real_forecast(request)
+            except Exception as prophet_err:
+                logger.warning("Prophet failed, falling back to linear: %s", prophet_err)
+                result = run_linear_forecast(request)
         else:
             if request.model == "prophet":
-                logger.warning("Prophet requested but not installed — falling back to linear model")
+                logger.warning("Prophet not available — falling back to linear model")
             result = run_linear_forecast(request)
         duration = time.time() - start_time
 

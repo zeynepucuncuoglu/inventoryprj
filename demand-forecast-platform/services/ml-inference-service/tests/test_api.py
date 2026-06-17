@@ -135,3 +135,26 @@ def test_forecast_rejects_negative_quantity_in_history():
     })
 
     assert response.status_code == 422
+
+
+def test_linear_model_returns_forecast():
+    response = client.post("/api/v1/forecast", json={
+        "product_id": "product-linear",
+        "sku": "SKU-LIN",
+        "horizon_days": 7,
+        "model": "linear",
+        "historical_data": _history(30),
+    })
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["forecast"]) == 7
+    assert body["model_used"] == "linear-trend"
+    assert body["mae"] >= 0
+
+
+def test_readiness_probe_returns_ready():
+    response = client.get("/health/ready")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "READY"

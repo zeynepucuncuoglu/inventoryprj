@@ -4,7 +4,7 @@ import logging
 import time
 
 from app.schemas.forecast_schemas import ForecastRequest, ForecastResponse
-from app.services.prophet_forecaster import run_prophet_forecast as run_linear_forecast
+from app.services.linear_forecaster import run_linear_forecast
 from app.monitoring import record_prediction, record_data_quality_issue
 
 logging.basicConfig(level=logging.INFO)

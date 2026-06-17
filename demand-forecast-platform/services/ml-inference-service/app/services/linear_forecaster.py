@@ -7,11 +7,10 @@ from app.schemas.forecast_schemas import (
 )
 
 
-def run_prophet_forecast(request: ForecastRequest) -> ForecastResponse:
+def run_linear_forecast(request: ForecastRequest) -> ForecastResponse:
     """
     Linear trend + weekly seasonality forecaster using numpy/sklearn.
-    Replaces Prophet to avoid CmdStan compilation requirement in Docker.
-    Same interface, same output schema.
+    Fallback when Prophet/CmdStan is unavailable.
     """
     df = _to_df(request.historical_data)
 

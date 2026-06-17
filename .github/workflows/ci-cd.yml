@@ -59,11 +59,19 @@ jobs:
           sarif_file: trivy-results.sarif
         continue-on-error: true   # fork PRs can't write security-events, that's OK
 
+      - name: Cache OWASP NVD database
+        uses: actions/cache@v4
+        with:
+          path: ~/.dependency-check/data
+          key: owasp-${{ runner.os }}-${{ hashFiles('**/pom.xml') }}
+          restore-keys: owasp-${{ runner.os }}-
+
       - name: OWASP Dependency Check — Java services
         run: |
           docker run --rm \
             -v ${{ github.workspace }}/demand-forecast-platform:/src \
             -v ${{ github.workspace }}/dc-report:/report \
+            -v ~/.dependency-check/data:/usr/share/dependency-check/data \
             owasp/dependency-check:latest \
             --project "demand-forecast" --scan /src \
             --format HTML --out /report \
@@ -168,7 +176,7 @@ jobs:
           pytest tests/ -v \
             --cov=app \
             --cov-report=xml \
-            --cov-fail-under=70 \
+            --cov-fail-under=80 \
             -p no:cacheprovider
 
       - name: Upload coverage

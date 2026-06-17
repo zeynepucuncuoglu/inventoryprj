@@ -72,7 +72,7 @@ jobs:
           cache-dependency-path: demand-forecast-platform/services/ml-inference-service/requirements.txt
 
       - name: Cache CmdStan
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cmdstan
           key: cmdstan-${{ runner.os }}-${{ hashFiles('demand-forecast-platform/services/ml-inference-service/requirements.txt') }}

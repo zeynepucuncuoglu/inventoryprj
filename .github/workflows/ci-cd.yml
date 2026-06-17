@@ -41,7 +41,7 @@ jobs:
         with: { fetch-depth: 0 }
 
       - name: Trivy — filesystem scan (warn only, never blocks pipeline)
-        uses: aquasecurity/trivy-action@v0.31.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: ./demand-forecast-platform
@@ -60,7 +60,7 @@ jobs:
         continue-on-error: true   # fork PRs can't write security-events, that's OK
 
       - name: Cache OWASP NVD database
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.dependency-check/data
           key: owasp-${{ runner.os }}-${{ hashFiles('**/pom.xml') }}
@@ -135,7 +135,7 @@ jobs:
 
       - name: Upload JaCoCo coverage
         if: always()
-        uses: codecov/codecov-action@v6    # updated: v4 → v5
+        uses: codecov/codecov-action@v7    # updated: v4 → v5
         with:
           files: "${{ env.COMPOSE_DIR }}/services/${{ matrix.service }}/target/site/jacoco/jacoco.xml"
           flags: ${{ matrix.service }}
@@ -159,7 +159,7 @@ jobs:
           cache-dependency-path: "${{ env.COMPOSE_DIR }}/services/ml-inference-service/requirements.txt"
 
       - name: Cache CmdStan
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cmdstan
           key: cmdstan-${{ runner.os }}-${{ hashFiles(format('{0}/services/ml-inference-service/requirements.txt', env.COMPOSE_DIR)) }}
@@ -182,7 +182,7 @@ jobs:
 
       - name: Upload coverage
         if: always()
-        uses: codecov/codecov-action@v6    # updated: v4 → v5
+        uses: codecov/codecov-action@v7    # updated: v4 → v5
         with:
           files: "${{ env.COMPOSE_DIR }}/services/ml-inference-service/coverage.xml"
           flags: ml-inference-service

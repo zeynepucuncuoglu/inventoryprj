@@ -134,6 +134,7 @@ jobs:
           include_passed: true
 
       - name: Upload JaCoCo coverage
+        if: always()
         uses: codecov/codecov-action@v6    # updated: v4 → v5
         with:
           files: "${{ env.COMPOSE_DIR }}/services/${{ matrix.service }}/target/site/jacoco/jacoco.xml"
@@ -180,6 +181,7 @@ jobs:
             -p no:cacheprovider
 
       - name: Upload coverage
+        if: always()
         uses: codecov/codecov-action@v6    # updated: v4 → v5
         with:
           files: "${{ env.COMPOSE_DIR }}/services/ml-inference-service/coverage.xml"

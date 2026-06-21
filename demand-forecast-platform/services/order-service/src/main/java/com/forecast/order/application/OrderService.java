@@ -2,7 +2,6 @@ package com.forecast.order.application;
 
 import com.forecast.order.application.dto.*;
 import com.forecast.order.domain.*;
-import com.forecast.order.infrastructure.messaging.OrderEventPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -17,7 +16,7 @@ import java.util.UUID;
 public class OrderService {
 
     private final OrderRepository orderRepository;
-    private final OrderEventPublisher eventPublisher;
+    private final OrderEventPort eventPublisher;
 
     @Transactional
     public OrderResponse placeOrder(PlaceOrderRequest request) {

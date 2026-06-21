@@ -1,17 +1,17 @@
 package com.forecast.order.infrastructure.messaging;
 
 import com.forecast.order.domain.Order;
+import com.forecast.order.domain.OrderEventPort;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
-
 import java.time.Instant;
 
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class OrderEventPublisher {
+public class OrderEventPublisher implements OrderEventPort {
 
     static final String TOPIC = "order.events";
 

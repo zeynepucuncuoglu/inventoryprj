@@ -37,11 +37,11 @@ jobs:
       contents: read
       security-events: write  # required for upload-sarif
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with: { fetch-depth: 0 }
 
       - name: Trivy — filesystem scan (warn only, never blocks pipeline)
-        uses: aquasecurity/trivy-action@v0.31.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: ./demand-forecast-platform
@@ -60,7 +60,7 @@ jobs:
         continue-on-error: true   # fork PRs can't write security-events, that's OK
 
       - name: Cache OWASP NVD database
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.dependency-check/data
           key: owasp-${{ runner.os }}-${{ hashFiles('**/pom.xml') }}
@@ -105,7 +105,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-java@v5
         with:
@@ -135,7 +135,7 @@ jobs:
 
       - name: Upload JaCoCo coverage
         if: always()
-        uses: codecov/codecov-action@v6    # updated: v4 → v5
+        uses: codecov/codecov-action@v7    # updated: v4 → v5
         with:
           files: "${{ env.COMPOSE_DIR }}/services/${{ matrix.service }}/target/site/jacoco/jacoco.xml"
           flags: ${{ matrix.service }}
@@ -150,7 +150,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v6
         with:
@@ -159,7 +159,7 @@ jobs:
           cache-dependency-path: "${{ env.COMPOSE_DIR }}/services/ml-inference-service/requirements.txt"
 
       - name: Cache CmdStan
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cmdstan
           key: cmdstan-${{ runner.os }}-${{ hashFiles(format('{0}/services/ml-inference-service/requirements.txt', env.COMPOSE_DIR)) }}
@@ -182,7 +182,7 @@ jobs:
 
       - name: Upload coverage
         if: always()
-        uses: codecov/codecov-action@v6    # updated: v4 → v5
+        uses: codecov/codecov-action@v7    # updated: v4 → v5
         with:
           files: "${{ env.COMPOSE_DIR }}/services/ml-inference-service/coverage.xml"
           flags: ml-inference-service
@@ -202,7 +202,7 @@ jobs:
       matrix:
         service: [api-gateway, product-service, order-service, forecast-service, notification-service, ml-inference-service]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -234,7 +234,7 @@ jobs:
       name: dev
       url: http://dev.demand-forecast.internal:8080
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Deploy to dev server
         uses: appleboy/ssh-action@v1.2.5
@@ -283,7 +283,7 @@ jobs:
       name: staging
       url: http://staging.demand-forecast.internal:9080
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Deploy to staging
         uses: appleboy/ssh-action@v1.2.5
@@ -341,7 +341,7 @@ jobs:
       name: production
       url: https://api.demand-forecast.internal
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Create deployment record
         uses: chrnorm/deployment-action@v2

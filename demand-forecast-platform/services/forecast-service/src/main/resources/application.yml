@@ -44,6 +44,10 @@ spring:
         spring.json.trusted.packages: "*"
         spring.json.use.type.headers: false
         spring.json.value.default.type: com.forecast.forecastsvc.infrastructure.messaging.OrderEventMessage
+    template:
+      observation-enabled: true
+    listener:
+      observation-enabled: true
 
 
 # ML service URL — internal Docker network, not exposed publicly

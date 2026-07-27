@@ -104,6 +104,24 @@
     <build>
         <plugins>
             <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <!-- bcprov-jdk18on (via spring-security-rsa) is a signed jar with an
+                         untrusted certificate chain; when present on the compile classpath
+                         it silently breaks javac's classpath-based annotation processor
+                         discovery, so Lombok never runs. Pointing directly at Lombok here
+                         bypasses that discovery step. -->
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <version>${lombok.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
+            <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>

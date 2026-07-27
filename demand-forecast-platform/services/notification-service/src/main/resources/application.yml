@@ -24,6 +24,10 @@ spring:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
     consumer:
       auto-offset-reset: earliest
+    template:
+      observation-enabled: true
+    listener:
+      observation-enabled: true
 
 notification:
   # Thresholds for triggering alerts

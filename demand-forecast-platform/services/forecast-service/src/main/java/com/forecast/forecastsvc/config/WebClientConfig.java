@@ -14,9 +14,10 @@ import org.springframework.web.reactive.function.client.WebClient;
 public class WebClientConfig {
 
     @Bean
-    public WebClient mlWebClient(@Value("${ml.service.url}") String mlServiceUrl,
+    public WebClient mlWebClient(WebClient.Builder webClientBuilder,
+                                  @Value("${ml.service.url}") String mlServiceUrl,
                                   ObjectMapper objectMapper) {
-        return WebClient.builder()
+        return webClientBuilder
                 .baseUrl(mlServiceUrl)
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .defaultHeader(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)

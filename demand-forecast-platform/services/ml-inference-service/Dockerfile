@@ -4,10 +4,21 @@ FROM python:3.12-slim AS builder
 WORKDIR /app
 COPY requirements.txt .
 
+# CmdStan derlemesi için gereken C++ toolchain — sadece bu stage'de kalır,
+# runtime image'a kopyalanmaz.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install into a venv so we can copy it cleanly to the final stage
 RUN python -m venv /opt/venv && \
     /opt/venv/bin/pip install --no-cache-dir --upgrade pip && \
     /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
+
+# CmdStan'ı bu Linux build ortamının içinde, sabit versiyonla derle.
+# Sürüm CI workflow'larındaki install_cmdstan() çağrısıyla eşleşmeli.
+RUN /opt/venv/bin/python -c \
+    "from cmdstanpy import install_cmdstan; install_cmdstan(version='2.35.0', dir='/opt/cmdstan')"
 
 # ─── Stage 2: Runtime ─────────────────────────────────────────
 FROM python:3.12-slim AS runtime
@@ -19,11 +30,13 @@ USER appuser
 WORKDIR /app
 
 COPY --from=builder /opt/venv /opt/venv
+COPY --from=builder --chown=appuser:appuser /opt/cmdstan /opt/cmdstan
 COPY app ./app
 
 ENV PATH="/opt/venv/bin:$PATH"
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
+ENV CMDSTAN=/opt/cmdstan/cmdstan-2.35.0
 
 EXPOSE 8000
 

@@ -84,7 +84,8 @@ jobs:
           pip install pytest-cov
 
       - name: Install CmdStan (cached after first run)
-        run: python -c "from cmdstanpy import install_cmdstan; install_cmdstan()" 2>/dev/null || true
+        # Version pinned to match services/ml-inference-service/Dockerfile
+        run: python -c "from cmdstanpy import install_cmdstan; install_cmdstan(version='2.35.0')" 2>/dev/null || true
 
       - name: Run pytest
         working-directory: demand-forecast-platform/services/ml-inference-service
